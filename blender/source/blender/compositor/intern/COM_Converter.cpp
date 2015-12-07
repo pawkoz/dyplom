@@ -118,8 +118,6 @@ extern "C" {
 #include "COM_PixelateNode.h"
 #include "COM_PlaneTrackDeformNode.h"
 
-
-
 bool Converter::is_fast_node(bNode *b_node)
 {
 	return !(b_node->type == CMP_NODE_BLUR ||
@@ -408,7 +406,6 @@ Node *Converter::convert(bNode *b_node)
 		case CMP_NODE_SUNBEAMS:
 			node = new SunBeamsNode(b_node);
 			break;
-
 	}
 	return node;
 }

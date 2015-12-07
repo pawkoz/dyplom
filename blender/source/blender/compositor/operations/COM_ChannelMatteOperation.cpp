@@ -1,3 +1,23 @@
+/*
+ * Copyright 2012, Blender Foundation.
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+ *
+ * Contributor:
+ *		Dalai Felinto
+ */
 
 #include "COM_ChannelMatteOperation.h"
 #include "BLI_math.h"
@@ -5,65 +25,102 @@
 ChannelMatteOperation::ChannelMatteOperation() : NodeOperation()
 {
 	addInputSocket(COM_DT_COLOR);
-	addInputSocket(COM_DT_COLOR);
-	//addInputSocket(COM_DT_COLOR);
-	//addInputSocket(COM_DT_COLOR);
-	//addInputSocket(COM_DT_COLOR);
 	addOutputSocket(COM_DT_VALUE);
 
 	this->m_inputImageProgram = NULL;
-	this->m_inputKeyProgram = NULL;
-	//this->m_inputKeyProgram_2 = NULL;
-	//this->m_inputKeyProgram_3 = NULL;
-	//this->m_inputKeyProgram_4 = NULL;
 }
 
 void ChannelMatteOperation::initExecution()
 {
 	this->m_inputImageProgram = this->getInputSocketReader(0);
-	this->m_inputKeyProgram = this->getInputSocketReader(1);
-	//this->m_inputKeyProgram_2 = this->getInputSocketReader(2);
-	//this->m_inputKeyProgram_3 = this->getInputSocketReader(3);
-	//this->m_inputKeyProgram_4 = this->getInputSocketReader(4);
+
+	this->m_limit_range = this->m_limit_max - this->m_limit_min;
+
+	switch (this->m_limit_method) {
+		/* SINGLE */
+		case 0:
+		{
+			/* 123 / RGB / HSV / YUV / YCC */
+			const int matte_channel = this->m_matte_channel - 1;
+			const int limit_channel = this->m_limit_channel - 1;
+			this->m_ids[0] = matte_channel;
+			this->m_ids[1] = limit_channel;
+			this->m_ids[2] = limit_channel;
+			break;
+		}
+		/* MAX */
+		case 1:
+		{
+			switch (this->m_matte_channel) {
+				case 1:
+				{
+					this->m_ids[0] = 0;
+					this->m_ids[1] = 1;
+					this->m_ids[2] = 2;
+					break;
+				}
+				case 2:
+				{
+					this->m_ids[0] = 1;
+					this->m_ids[1] = 0;
+					this->m_ids[2] = 2;
+					break;
+				}
+				case 3:
+				{
+					this->m_ids[0] = 2;
+					this->m_ids[1] = 0;
+					this->m_ids[2] = 1;
+					break;
+				}
+				default:
+					break;
+			}
+			break;
+		}
+		default:
+			break;
+	}
 }
 
 void ChannelMatteOperation::deinitExecution()
 {
 	this->m_inputImageProgram = NULL;
-	this->m_inputKeyProgram = NULL;
-	//this->m_inputKeyProgram_2 = NULL;
-	//this->m_inputKeyProgram_3 = NULL;
-	//this->m_inputKeyProgram_4 = NULL;
 }
 
 void ChannelMatteOperation::executePixelSampled(float output[4], float x, float y, PixelSampler sampler)
 {
 	float inColor[4];
-	float inKey[4];
-	//float inKey_1[4], inKey_2[4], inKey_3[4], inKey_4[4];
+	float alpha;
 
-
-	const float hue = this->m_settings->t1;
-	const float sat = this->m_settings->t2;
-	const float val = this->m_settings->t3;
-
-	float h_wrap;
+	const float limit_max = this->m_limit_max;
+	const float limit_min = this->m_limit_min;
+	const float limit_range = this->m_limit_range;
 
 	this->m_inputImageProgram->readSampled(inColor, x, y, sampler);
-	this->m_inputKeyProgram->readSampled(inKey, x, y, sampler);
 
-
-
-	if (
-	     (fabsf(inColor[1] - inKey[1]) < sat) &&
-	     (fabsf(inColor[2] - inKey[2]) < val) &&
-	     ((h_wrap = 2.f * fabsf(inColor[0] - inKey[0])) < hue || (2.f - h_wrap) < hue)
-	    )
-	{
-		output[0] = 0.0f;
+	/* matte operation */
+	alpha = inColor[this->m_ids[0]] - max(inColor[this->m_ids[1]], inColor[this->m_ids[2]]);
+		
+	/* flip because 0.0 is transparent, not 1.0 */
+	alpha = 1.0f - alpha;
+	
+	/* test range */
+	if (alpha > limit_max) {
+		alpha = inColor[3]; /*whatever it was prior */
+	}
+	else if (alpha < limit_min) {
+		alpha = 0.f;
+	}
+	else { /*blend */
+		alpha = (alpha - limit_min) / limit_range;
 	}
 
-	else { 
-		output[0] = inColor[3]; 
-	}
+	/* store matte(alpha) value in [0] to go with
+	 * COM_SetAlphaOperation and the Value output
+	 */
+	
+	/* don't make something that was more transparent less transparent */
+	output[0] = min(alpha, inColor[3]);
 }
+

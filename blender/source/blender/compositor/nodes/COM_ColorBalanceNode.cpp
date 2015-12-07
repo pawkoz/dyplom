@@ -26,6 +26,8 @@
 #include "COM_ExecutionSystem.h"
 #include "BKE_node.h"
 #include "COM_MixOperation.h"
+#include "COM_ConvertOperation.h"
+#include "COM_SetAlphaOperation.h"
 
 ColorBalanceNode::ColorBalanceNode(bNode *editorNode) : Node(editorNode)
 {
@@ -34,21 +36,43 @@ ColorBalanceNode::ColorBalanceNode(bNode *editorNode) : Node(editorNode)
 
 void ColorBalanceNode::convertToOperations(NodeConverter &converter, const CompositorContext &/*context*/) const
 {
-	bNode *node = this->getbNode();
-	NodeColorBalance *n = (NodeColorBalance *)node->storage;
 	
-	NodeInput *inputImageSocket = this->getInputSocket(0);
-	NodeOutput *outputSocket = this->getOutputSocket(0);
+
+	
+	
+
+	bNode *editorsnode = getbNode();
+	NodeColorBalance *n = (NodeColorBalance *)editorsnode->storage;
+
+	NodeInput *inputSocketImage = this->getInputSocket(0);
+	NodeInput *inputSocketKey = this->getInputSocket(1);
+	NodeOutput *outputSocketImage = this->getOutputSocket(0);
+	NodeOutput *outputSocketMatte = this->getOutputSocket(1);
+	
+	ConvertRGBToHSVOperation *operationRGBToHSV_Image = new ConvertRGBToHSVOperation();
+	ConvertRGBToHSVOperation *operationRGBToHSV_Key = new ConvertRGBToHSVOperation();
+	converter.addOperation(operationRGBToHSV_Image);
+	converter.addOperation(operationRGBToHSV_Key);
 	
 	NodeOperation *operation;
-
 	ColorBalanceLGGOperation *operationLGG = new ColorBalanceLGGOperation();
-
 	operationLGG->setGain(n->gain);
 	operation = operationLGG;
-	
 	converter.addOperation(operation);
 	
-	converter.mapInputSocket(inputImageSocket, operation->getInputSocket(0));
-	converter.mapOutputSocket(outputSocket, operation->getOutputSocket(0));
+	SetAlphaOperation *operationAlpha = new SetAlphaOperation();
+	converter.addOperation(operationAlpha);
+	
+	converter.mapInputSocket(inputSocketImage, operationRGBToHSV_Image->getInputSocket(0));
+	converter.mapInputSocket(inputSocketKey, operationRGBToHSV_Key->getInputSocket(0));
+	converter.addLink(operationRGBToHSV_Image->getOutputSocket(), operation->getInputSocket(0));
+	converter.addLink(operationRGBToHSV_Key->getOutputSocket(), operation->getInputSocket(1));
+	converter.mapOutputSocket(outputSocketMatte, operation->getOutputSocket(0));
+	
+	converter.mapInputSocket(inputSocketImage, operationAlpha->getInputSocket(0));
+	converter.addLink(operation->getOutputSocket(), operationAlpha->getInputSocket(1));
+	converter.mapOutputSocket(outputSocketImage, operationAlpha->getOutputSocket());
+	
+	converter.addPreview(operationAlpha->getOutputSocket());
+
 }

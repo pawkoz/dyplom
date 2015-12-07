@@ -247,7 +247,7 @@ static void node_browse_tex_cb(bContext *C, void *ntree_v, void *node_v)
 	if (node->menunr < 1) return;
 	
 	if (node->id) {
-		node->id->us--;
+		id_us_min(node->id);
 		node->id = NULL;
 	}
 	tex = BLI_findlink(&bmain->tex, node->menunr - 1);
@@ -857,6 +857,7 @@ static void node_shader_buts_tex_environment(uiLayout *layout, bContext *C, Poin
 	node_buts_image_user(layout, C, &iuserptr, &imaptr, &iuserptr);
 
 	uiItemR(layout, ptr, "color_space", 0, "", ICON_NONE);
+	uiItemR(layout, ptr, "interpolation", 0, "", ICON_NONE);
 	uiItemR(layout, ptr, "projection", 0, "", ICON_NONE);
 }
 
@@ -898,6 +899,7 @@ static void node_shader_buts_tex_environment_ex(uiLayout *layout, bContext *C, P
 	}
 
 	uiItemR(layout, ptr, "color_space", 0, IFACE_("Color Space"), ICON_NONE);
+	uiItemR(layout, ptr, "interpolation", 0, IFACE_("Interpolation"), ICON_NONE);
 	uiItemR(layout, ptr, "projection", 0, IFACE_("Projection"), ICON_NONE);
 }
 
@@ -1721,28 +1723,47 @@ static void node_composit_buts_chroma_matte(uiLayout *layout, bContext *UNUSED(C
 
 static void node_composit_buts_color_matte(uiLayout *layout, bContext *UNUSED(C), PointerRNA *ptr)
 {
+
+	uiItemR(layout, ptr, "correction_method", 0, NULL, ICON_NONE);
 	
-	uiLayout *col;
-	col = uiLayoutColumn(layout, true);
-	uiItemR(col,ptr, "color_hue", UI_ITEM_R_SLIDER, NULL, ICON_NONE);
-	uiItemR(col, ptr, "color_saturation", UI_ITEM_R_SLIDER, NULL, ICON_NONE);
-	uiItemR(col, ptr, "color_value", UI_ITEM_R_SLIDER, NULL, ICON_NONE);
+	if (RNA_enum_get(ptr, "correction_method") == 0) 
+	{
+		uiTemplateColorMultiPicker(layout, ptr, "gain_1", 1, 1, 1, 1);
+		uiItemR(layout, ptr, "gain_1", 0, NULL, ICON_NONE);
+	}
+	else
+	{
+		uiTemplateColorMultiPicker(layout, ptr, "gain_1", 1, 1, 1, 1);
+		uiItemR(layout, ptr, "gain_1", 0, NULL, ICON_NONE);
+	}
+
+
 }
-
-
 
 static void node_composit_buts_channel_matte(uiLayout *layout, bContext *UNUSED(C), PointerRNA *ptr)
 {	
-	bNode *node = ptr->data;
-	bNodeSocket *input = node->inputs.first;
+	uiLayout *col, *row;
 
-	uiLayout *col,*row;
-	PointerRNA sockptr;
-	RNA_pointer_create(ptr->id.data, &RNA_NodeSocket, input, &sockptr);
+	uiItemL(layout, IFACE_("Color Space:"), ICON_NONE);
+	row = uiLayoutRow(layout, false);
+	uiItemR(row, ptr, "color_space", UI_ITEM_R_EXPAND, NULL, ICON_NONE);
 
-	col = uiLayoutColumn(layout, true);
-	uiTemplateColorMultiPicker(col, &sockptr, "default_value", 0, 1, 0, 0);
+	col = uiLayoutColumn(layout, false);
+	uiItemL(col, IFACE_("Key Channel:"), ICON_NONE);
+	row = uiLayoutRow(col, false);
+	uiItemR(row, ptr, "matte_channel", UI_ITEM_R_EXPAND, NULL, ICON_NONE);
 
+	col = uiLayoutColumn(layout, false);
+
+	uiItemR(col, ptr, "limit_method", 0, NULL, ICON_NONE);
+	if (RNA_enum_get(ptr, "limit_method") == 0) {
+		uiItemL(col, IFACE_("Limiting Channel:"), ICON_NONE);
+		row = uiLayoutRow(col, false);
+		uiItemR(row, ptr, "limit_channel", UI_ITEM_R_EXPAND, NULL, ICON_NONE);
+	}
+
+	uiItemR(col, ptr, "limit_max", UI_ITEM_R_SLIDER, NULL, ICON_NONE);
+	uiItemR(col, ptr, "limit_min", UI_ITEM_R_SLIDER, NULL, ICON_NONE);
 }
 
 static void node_composit_buts_luma_matte(uiLayout *layout, bContext *UNUSED(C), PointerRNA *ptr)
@@ -1904,8 +1925,7 @@ static void node_composit_buts_colorbalance(uiLayout *layout, bContext *UNUSED(C
 	uiLayout *split, *col, *row;
 	
 	uiItemR(layout, ptr, "correction_method", 0, NULL, ICON_NONE);
-	
-	if (RNA_enum_get(ptr, "correction_method") == 0) {
+
 	
 		split = uiLayoutSplit(layout, 0.0f, false);
 		col = uiLayoutColumn(split, false);
@@ -1923,26 +1943,7 @@ static void node_composit_buts_colorbalance(uiLayout *layout, bContext *UNUSED(C
 		row = uiLayoutRow(col, false);
 		uiItemR(row, ptr, "gain", 0, NULL, ICON_NONE);
 
-	}
-	else {
-		
-		split = uiLayoutSplit(layout, 0.0f, false);
-		col = uiLayoutColumn(split, false);
-		uiTemplateColorPicker(col, ptr, "offset", 1, 1, 0, 1);
-		row = uiLayoutRow(col, false);
-		uiItemR(row, ptr, "offset", 0, NULL, ICON_NONE);
-		
-		col = uiLayoutColumn(split, false);
-		uiTemplateColorPicker(col, ptr, "power", 1, 1, 0, 1);
-		row = uiLayoutRow(col, false);
-		uiItemR(row, ptr, "power", 0, NULL, ICON_NONE);
-		
-		col = uiLayoutColumn(split, false);
-		uiTemplateColorPicker(col, ptr, "slope", 1, 1, 0, 1);
-		row = uiLayoutRow(col, false);
-		uiItemR(row, ptr, "slope", 0, NULL, ICON_NONE);
-	}
-
+	
 }
 static void node_composit_buts_colorbalance_ex(uiLayout *layout, bContext *UNUSED(C), PointerRNA *ptr)
 {
@@ -1950,12 +1951,7 @@ static void node_composit_buts_colorbalance_ex(uiLayout *layout, bContext *UNUSE
 
 	if (RNA_enum_get(ptr, "correction_method") == 0) {
 
-		uiTemplateColorPicker(layout, ptr, "lift", 1, 1, 0, 1);
-		uiItemR(layout, ptr, "lift", 0, NULL, ICON_NONE);
-
-		uiTemplateColorPicker(layout, ptr, "gamma", 1, 1, 1, 1);
-		uiItemR(layout, ptr, "gamma", 0, NULL, ICON_NONE);
-
+	
 		uiTemplateColorPicker(layout, ptr, "gain", 1, 1, 1, 1);
 		uiItemR(layout, ptr, "gain", 0, NULL, ICON_NONE);
 	}
@@ -2023,6 +2019,7 @@ static void node_composit_buts_stabilize2d(uiLayout *layout, bContext *C, Pointe
 		return;
 
 	uiItemR(layout, ptr, "filter_type", 0, "", ICON_NONE);
+	uiItemR(layout, ptr, "invert", 0, NULL, ICON_NONE);
 }
 
 static void node_composit_buts_translate(uiLayout *layout, bContext *UNUSED(C), PointerRNA *ptr)
@@ -2439,7 +2436,6 @@ static void node_composit_buts_planetrackdeform(uiLayout *layout, bContext *C, P
 		MovieTrackingObject *object;
 		uiLayout *col;
 		PointerRNA tracking_ptr;
-		NodeTrackPosData *data = node->storage;
 
 		RNA_pointer_create(&clip->id, &RNA_MovieTracking, tracking, &tracking_ptr);
 
@@ -2590,7 +2586,6 @@ static void node_composit_set_butfunc(bNodeType *ntype)
 		case CMP_NODE_COLOR_MATTE:
 			ntype->draw_buttons = node_composit_buts_color_matte;
 			break;
-		
 		case CMP_NODE_SCALE:
 			ntype->draw_buttons = node_composit_buts_scale;
 			break;
@@ -3323,7 +3318,7 @@ void draw_nodespace_back_pix(const bContext *C, ARegion *ar, SpaceNode *snode, b
 
 
 /* if v2d not NULL, it clips and returns 0 if not visible */
-int node_link_bezier_points(View2D *v2d, SpaceNode *snode, bNodeLink *link, float coord_array[][2], int resol)
+bool node_link_bezier_points(View2D *v2d, SpaceNode *snode, bNodeLink *link, float coord_array[][2], int resol)
 {
 	float dist, vec[4][2];
 	float deltax, deltay;
@@ -3359,7 +3354,8 @@ int node_link_bezier_points(View2D *v2d, SpaceNode *snode, bNodeLink *link, floa
 		toreroute = 0;
 	}
 
-	dist = UI_GetThemeValue(TH_NODE_CURVING) * 0.10f * fabsf(vec[0][0] - vec[3][0]);
+	/* may be called outside of drawing (so pass spacetype) */
+	dist = UI_GetThemeValueType(TH_NODE_CURVING, SPACE_NODE) * 0.10f * fabsf(vec[0][0] - vec[3][0]);
 	deltax = vec[3][0] - vec[0][0];
 	deltay = vec[3][1] - vec[0][1];
 	/* check direction later, for top sockets */

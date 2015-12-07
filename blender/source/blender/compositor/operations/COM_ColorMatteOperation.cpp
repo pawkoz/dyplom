@@ -21,6 +21,7 @@
 
 #include "COM_ColorMatteOperation.h"
 #include "BLI_math.h"
+#include "COM_ConvertOperation.h"
 
 ColorMatteOperation::ColorMatteOperation() : NodeOperation()
 {
@@ -48,24 +49,25 @@ void ColorMatteOperation::executePixelSampled(float output[4], float x, float y,
 {
 	float inColor[4];
 	float inKey[4];
+	float hsv_gain[4];
 
-	const float hue = this->m_settings->t1;
-	const float sat = this->m_settings->t2;
-	const float val = this->m_settings->t3;
+	const float hue = 0.01f;
+	const float sat = 0.1f;
+	const float val = 0.1f;
+
+	printf("R: %f G: %f B: %f \n", this->m_settings->gain[0],this->m_settings->gain[1],this->m_settings->gain[2]);
+
 
 	float h_wrap;
-
 	this->m_inputImageProgram->readSampled(inColor, x, y, sampler);
 	this->m_inputKeyProgram->readSampled(inKey, x, y, sampler);
 
+	rgb_to_hsv_v(this->m_settings->gain, hsv_gain);
 
-	/* store matte(alpha) value in [0] to go with
-	 * COM_SetAlphaOperation and the Value output
-	 */
+	//printf("H: %f S: %f V: %f \n", hsv_gain[0],hsv_gain[1],hsv_gain[2]);
 
 	if (
-	    /* do hue last because it needs to wrap, and does some more checks  */
-
+	
 	    /* sat */ (fabsf(inColor[1] - inKey[1]) < sat) &&
 	    /* val */ (fabsf(inColor[2] - inKey[2]) < val) &&
 

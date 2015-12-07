@@ -1,5 +1,5 @@
 /*
- * Copyright 2011, Blender Foundation.
+ * Copyright 2012, Blender Foundation.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -32,34 +32,66 @@ ChannelMatteNode::ChannelMatteNode(bNode *editorNode) : Node(editorNode)
 
 void ChannelMatteNode::convertToOperations(NodeConverter &converter, const CompositorContext &/*context*/) const
 {
-	bNode *editorsnode = getbNode();
-	
-	NodeInput *inputSocketImage = this->getInputSocket(1);
-	NodeInput *inputSocketKey = this->getInputSocket(0);
+	bNode *node = this->getbNode();
+
+	NodeInput *inputSocketImage = this->getInputSocket(0);
 	NodeOutput *outputSocketImage = this->getOutputSocket(0);
 	NodeOutput *outputSocketMatte = this->getOutputSocket(1);
-	
-	ConvertRGBToHSVOperation *operationRGBToHSV_Image = new ConvertRGBToHSVOperation();
-	ConvertRGBToHSVOperation *operationRGBToHSV_Key = new ConvertRGBToHSVOperation();
-	converter.addOperation(operationRGBToHSV_Image);
-	converter.addOperation(operationRGBToHSV_Key);
-	
+
+	NodeOperation *convert = NULL, *inv_convert = NULL;
+	/* colorspace */
+	switch (node->custom1) {
+		case CMP_NODE_CHANNEL_MATTE_CS_RGB:
+			break;
+		case CMP_NODE_CHANNEL_MATTE_CS_HSV: /* HSV */
+			convert = new ConvertRGBToHSVOperation();
+			inv_convert = new ConvertHSVToRGBOperation();
+			break;
+		case CMP_NODE_CHANNEL_MATTE_CS_YUV: /* YUV */
+			convert = new ConvertRGBToYUVOperation();
+			inv_convert = new ConvertYUVToRGBOperation();
+			break;
+		case CMP_NODE_CHANNEL_MATTE_CS_YCC: /* YCC */
+			convert = new ConvertRGBToYCCOperation();
+			((ConvertRGBToYCCOperation *)convert)->setMode(0); /* BLI_YCC_ITU_BT601 */
+			inv_convert = new ConvertYCCToRGBOperation();
+			((ConvertYCCToRGBOperation *)inv_convert)->setMode(0); /* BLI_YCC_ITU_BT601 */
+			break;
+		default:
+			break;
+	}
+
 	ChannelMatteOperation *operation = new ChannelMatteOperation();
-	operation->setSettings((NodeChroma *)editorsnode->storage);
+	/* pass the ui properties to the operation */
+	operation->setSettings((NodeChroma *)node->storage, node->custom2);
 	converter.addOperation(operation);
-	
+
 	SetAlphaOperation *operationAlpha = new SetAlphaOperation();
 	converter.addOperation(operationAlpha);
-	
-	converter.mapInputSocket(inputSocketImage, operationRGBToHSV_Image->getInputSocket(0));
-	converter.mapInputSocket(inputSocketKey, operationRGBToHSV_Key->getInputSocket(0));
-	converter.addLink(operationRGBToHSV_Image->getOutputSocket(), operation->getInputSocket(0));
-	converter.addLink(operationRGBToHSV_Key->getOutputSocket(), operation->getInputSocket(1));
+
+	if (convert != NULL) {
+		converter.addOperation(convert);
+
+		converter.mapInputSocket(inputSocketImage, convert->getInputSocket(0));
+		converter.addLink(convert->getOutputSocket(), operation->getInputSocket(0));
+		converter.addLink(convert->getOutputSocket(), operationAlpha->getInputSocket(0));
+	}
+	else {
+		converter.mapInputSocket(inputSocketImage, operation->getInputSocket(0));
+		converter.mapInputSocket(inputSocketImage, operationAlpha->getInputSocket(0));
+	}
+
 	converter.mapOutputSocket(outputSocketMatte, operation->getOutputSocket(0));
-	
-	converter.mapInputSocket(inputSocketImage, operationAlpha->getInputSocket(0));
 	converter.addLink(operation->getOutputSocket(), operationAlpha->getInputSocket(1));
-	converter.mapOutputSocket(outputSocketImage, operationAlpha->getOutputSocket());
-	
-	converter.addPreview(operationAlpha->getOutputSocket());
+
+	if (inv_convert != NULL) {
+		converter.addOperation(inv_convert);
+		converter.addLink(operationAlpha->getOutputSocket(0), inv_convert->getInputSocket(0));
+		converter.mapOutputSocket(outputSocketImage, inv_convert->getOutputSocket());
+		converter.addPreview(inv_convert->getOutputSocket());
+	}
+	else {
+		converter.mapOutputSocket(outputSocketImage, operationAlpha->getOutputSocket());
+		converter.addPreview(operationAlpha->getOutputSocket());
+	}
 }

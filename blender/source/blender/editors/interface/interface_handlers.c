@@ -119,6 +119,7 @@ static void ui_but_smart_controller_add(bContext *C, uiBut *from, uiBut *to);
 static void ui_but_link_add(bContext *C, uiBut *from, uiBut *to);
 static int ui_do_but_EXIT(bContext *C, uiBut *but, struct uiHandleButtonData *data, const wmEvent *event);
 static bool ui_but_find_select_in_enum__cmp(const uiBut *but_a, const uiBut *but_b);
+static void ui_textedit_string_set(uiBut *but, struct uiHandleButtonData *data, const char *str);
 
 #ifdef USE_KEYNAV_LIMIT
 static void ui_mouse_motion_keynav_init(struct uiKeyNavLock *keynav, const wmEvent *event);
@@ -282,7 +283,9 @@ typedef struct uiHandleButtonData {
 	wmTimer *flashtimer;
 
 	/* edited value */
-	char *str, *origstr;
+	/* use 'ui_textedit_string_set' to assign new strings */
+	char *str;
+	char *origstr;
 	double value, origvalue, startvalue;
 	float vec[3], origvec[3];
 #if 0  /* UNUSED */
@@ -299,8 +302,18 @@ typedef struct uiHandleButtonData {
 	wmTimer *autoopentimer;
 
 	/* text selection/editing */
-	int maxlen, selextend;
+	/* size of 'str' (including terminator) */
+	int maxlen;
+	/* Button text selection:
+	 * extension direction, selextend, inside ui_do_but_TEX */
+	enum {
+		EXTEND_NONE =     0,
+		EXTEND_LEFT =     1,
+		EXTEND_RIGHT =    2,
+	} selextend;
 	float selstartx;
+	/* allow to realloc str/editstr and use 'maxlen' to track alloc size (maxlen + 1) */
+	bool is_str_dynamic;
 
 	/* number editing / dragging */
 	/* coords are Window/uiBlock relative (depends on the button) */
@@ -526,14 +539,6 @@ static bool ui_but_is_cursor_warp(uiBut *but)
 		{
 			return true;
 		}
-		
-		if (ELEM(but->type,
-		         UI_BTYPE_NUM, UI_BTYPE_NUM_SLIDER, UI_BTYPE_HSVCIRCLE_MULTI,
-		         UI_BTYPE_TRACK_PREVIEW, UI_BTYPE_HSVCUBE, UI_BTYPE_CURVE))
-		{
-			return true;
-		}//////////////////////////// PAWEL
-
 	}
 
 	return false;
@@ -542,7 +547,7 @@ static bool ui_but_is_cursor_warp(uiBut *but)
 /**
  * Ignore mouse movements within some horizontal pixel threshold before starting to drag
  */
-static bool ui_but_dragedit_poll(uiHandleButtonData *data, int mx)
+static bool ui_but_dragedit_update_mval(uiHandleButtonData *data, int mx)
 {
 	if (mx == data->draglastx)
 		return false;
@@ -2090,9 +2095,6 @@ static void ui_apply_but(bContext *C, uiBlock *block, uiBut *but, uiHandleButton
 		case UI_BTYPE_HSVCIRCLE:
 			ui_apply_but_VEC(C, but, data);
 			break;
-		case UI_BTYPE_HSVCIRCLE_MULTI: 
-			ui_apply_but_VEC(C, but, data); //////////////////////////// PAWEL
-			break;
 		case UI_BTYPE_COLORBAND:
 			ui_apply_but_COLORBAND(C, but, data);
 			break;
@@ -2167,7 +2169,8 @@ static void ui_but_drop(bContext *C, const wmEvent *event, uiBut *but, uiHandleB
 				ID *id = (ID *)wmd->poin;
 				
 				button_activate_state(C, but, BUTTON_STATE_TEXT_EDITING);
-				BLI_strncpy(data->str, id->name + 2, data->maxlen);
+
+				ui_textedit_string_set(but, data, id->name + 2);
 
 				if (ELEM(but->type, UI_BTYPE_SEARCH_MENU)) {
 					but->changed = true;
@@ -2325,10 +2328,7 @@ static void ui_but_copy_paste(bContext *C, uiBut *but, uiHandleButtonData *data,
 		else {
 			button_activate_state(C, but, BUTTON_STATE_TEXT_EDITING);
 
-			if (ui_but_is_utf8(but))
-				BLI_strncpy_utf8(active_data->str, buf_paste, active_data->maxlen);
-			else
-				BLI_strncpy(active_data->str, buf_paste, active_data->maxlen);
+			ui_textedit_string_set(but, active_data, buf_paste);
 
 			if (but->type == UI_BTYPE_SEARCH_MENU) {
 				/* else uiSearchboxData.active member is not updated [#26856] */
@@ -2479,6 +2479,31 @@ void ui_but_text_password_hide(char password_str[UI_MAX_PASSWORD_STR], uiBut *bu
 
 /* ************* in-button text selection/editing ************* */
 
+static void ui_textedit_string_ensure_max_length(uiBut *but, uiHandleButtonData *data, int maxlen)
+{
+	BLI_assert(data->is_str_dynamic);
+	BLI_assert(data->str == but->editstr);
+
+	if (maxlen > data->maxlen) {
+		data->str = but->editstr = MEM_reallocN(data->str, sizeof(char) * maxlen);
+		data->maxlen = maxlen;
+	}
+}
+
+static void ui_textedit_string_set(uiBut *but, uiHandleButtonData *data, const char *str)
+{
+	if (data->is_str_dynamic) {
+		ui_textedit_string_ensure_max_length(but, data, strlen(str) + 1);
+	}
+
+	if (ui_but_is_utf8(but)) {
+		BLI_strncpy_utf8(data->str, str, data->maxlen);
+	}
+	else {
+		BLI_strncpy(data->str, str, data->maxlen);
+	}
+}
+
 
 static bool ui_textedit_delete_selection(uiBut *but, uiHandleButtonData *data)
 {
@@ -2508,7 +2533,9 @@ static void ui_textedit_set_cursor_pos(uiBut *but, uiHandleButtonData *data, con
 
 	float startx = but->rect.xmin;
 	float starty_dummy = 0.0f;
-	char *origstr, password_str[UI_MAX_PASSWORD_STR];
+	char password_str[UI_MAX_PASSWORD_STR];
+	/* treat 'str_last' as null terminator for str, no need to modify in-place */
+	const char *str = but->editstr, *str_last;
 
 	ui_block_to_window_fl(data->region, but->block, &startx, &starty_dummy);
 
@@ -2520,10 +2547,6 @@ static void ui_textedit_set_cursor_pos(uiBut *but, uiHandleButtonData *data, con
 		BLF_enable(fstyle->uifont_id, BLF_KERNING_DEFAULT);
 	
 	ui_but_text_password_hide(password_str, but, false);
-
-	origstr = MEM_mallocN(sizeof(char) * data->maxlen, "ui_textedit origstr");
-
-	BLI_strncpy(origstr, but->editstr, data->maxlen);
 
 	if (ELEM(but->type, UI_BTYPE_TEXT, UI_BTYPE_SEARCH_MENU)) {
 		if (but->flag & UI_HAS_ICON) {
@@ -2537,12 +2560,12 @@ static void ui_textedit_set_cursor_pos(uiBut *but, uiHandleButtonData *data, con
 	if (x < startx) {
 		int i = but->ofs;
 
-		origstr[but->ofs] = '\0';
+		str_last = &str[but->ofs];
 		
 		while (i > 0) {
-			if (BLI_str_cursor_step_prev_utf8(origstr, but->ofs, &i)) {
+			if (BLI_str_cursor_step_prev_utf8(str, but->ofs, &i)) {
 				/* 0.25 == scale factor for less sensitivity */
-				if (BLF_width(fstyle->uifont_id, origstr + i, BLF_DRAW_STR_DUMMY_MAX) > (startx - x) * 0.25f) {
+				if (BLF_width(fstyle->uifont_id, str + i, (str_last - str) - i) > (startx - x) * 0.25f) {
 					break;
 				}
 			}
@@ -2561,10 +2584,12 @@ static void ui_textedit_set_cursor_pos(uiBut *but, uiHandleButtonData *data, con
 		float cdist, cdist_prev = 0.0f;
 		short pos_prev;
 		
-		but->pos = pos_prev = strlen(origstr) - but->ofs;
+		str_last = &str[strlen(str)];
+
+		but->pos = pos_prev = ((str_last - str) - but->ofs);
 
 		while (true) {
-			cdist = startx + BLF_width(fstyle->uifont_id, origstr + but->ofs, BLF_DRAW_STR_DUMMY_MAX);
+			cdist = startx + BLF_width(fstyle->uifont_id, str + but->ofs, (str_last - str) - but->ofs);
 
 			/* check if position is found */
 			if (cdist < x) {
@@ -2580,9 +2605,9 @@ static void ui_textedit_set_cursor_pos(uiBut *but, uiHandleButtonData *data, con
 
 			pos_i = but->pos;
 			if (but->pos <= 0) break;
-			if (BLI_str_cursor_step_prev_utf8(origstr, but->ofs, &pos_i)) {
+			if (BLI_str_cursor_step_prev_utf8(str, but->ofs, &pos_i)) {
 				but->pos = pos_i;
-				origstr[but->pos + but->ofs] = 0;
+				str_last = &str[but->pos + but->ofs];
 			}
 			else {
 				break; /* unlikely but possible */
@@ -2596,8 +2621,6 @@ static void ui_textedit_set_cursor_pos(uiBut *but, uiHandleButtonData *data, con
 		BLF_disable(fstyle->uifont_id, BLF_KERNING_DEFAULT);
 	
 	ui_but_text_password_hide(password_str, but, true);
-
-	MEM_freeN(origstr);
 
 	fstyle->points = fstyle_points_prev;
 }
@@ -2616,22 +2639,25 @@ static void ui_textedit_set_cursor_select(uiBut *but, uiHandleButtonData *data, 
 }
 
 /**
- * This is used for both utf8 and ascii, its meant to be used for single keys,
- * notice the buffer is either copied or not, so its not suitable for pasting in
- * - campbell */
-static bool ui_textedit_type_buf(
+ * This is used for both utf8 and ascii
+ *
+ * For unicode buttons, \a buf is treated as unicode.
+ */
+static bool ui_textedit_insert_buf(
         uiBut *but, uiHandleButtonData *data,
-        const char *utf8_buf, int utf8_buf_len)
+        const char *buf, int buf_len)
 {
-	char *str;
-	int len;
+	int len = strlen(data->str);
+	int len_new = len - (but->selend - but->selsta) + 1;
 	bool changed = false;
 
-	str = data->str;
-	len = strlen(str);
+	if (data->is_str_dynamic) {
+		ui_textedit_string_ensure_max_length(but, data, len_new + buf_len);
+	}
 
-	if (len - (but->selend - but->selsta) + 1 <= data->maxlen) {
-		int step = utf8_buf_len;
+	if (len_new <= data->maxlen) {
+		char *str = data->str;
+		size_t step = buf_len;
 
 		/* type over the current selection */
 		if ((but->selend - but->selsta) > 0) {
@@ -2639,9 +2665,19 @@ static bool ui_textedit_type_buf(
 			len = strlen(str);
 		}
 
-		if (len + step < data->maxlen) {
+		if ((len + step >= data->maxlen) && (data->maxlen - (len + 1) > 0)) {
+			if (ui_but_is_utf8(but)) {
+				/* shorten 'step' to a utf8 algined size that fits  */
+				BLI_strnlen_utf8_ex(buf, data->maxlen - (len + 1), &step);
+			}
+			else {
+				step = data->maxlen - (len + 1);
+			}
+		}
+
+		if (step && (len + step < data->maxlen)) {
 			memmove(&str[but->pos + step], &str[but->pos], (len + 1) - but->pos);
-			memcpy(&str[but->pos], utf8_buf, step * sizeof(char));
+			memcpy(&str[but->pos], buf, step * sizeof(char));
 			but->pos += step;
 			changed = true;
 		}
@@ -2650,7 +2686,7 @@ static bool ui_textedit_type_buf(
 	return changed;
 }
 
-static bool ui_textedit_type_ascii(uiBut *but, uiHandleButtonData *data, char ascii)
+static bool ui_textedit_insert_ascii(uiBut *but, uiHandleButtonData *data, char ascii)
 {
 	char buf[2] = {ascii, '\0'};
 
@@ -2662,7 +2698,7 @@ static bool ui_textedit_type_ascii(uiBut *but, uiHandleButtonData *data, char as
 	}
 
 	/* in some cases we want to allow invalid utf8 chars */
-	return ui_textedit_type_buf(but, data, buf, 1);
+	return ui_textedit_insert_buf(but, data, buf, 1);
 }
 
 static void ui_textedit_move(
@@ -2689,7 +2725,7 @@ static void ui_textedit_move(
 				but->pos = but->selend = but->selsta;
 			}
 		}
-		data->selextend = 0;
+		data->selextend = EXTEND_NONE;
 	}
 	else {
 		int pos_i = but->pos;
@@ -2700,7 +2736,7 @@ static void ui_textedit_move(
 			/* existing selection */
 			if (has_sel) {
 
-				if (data->selextend == 0) {
+				if (data->selextend == EXTEND_NONE) {
 					data->selextend = EXTEND_RIGHT;
 				}
 
@@ -2816,48 +2852,24 @@ enum {
 
 static bool ui_textedit_copypaste(uiBut *but, uiHandleButtonData *data, const int mode)
 {
-	char *str, *pbuf;
-	int x;
+	char *pbuf;
 	bool changed = false;
-	int str_len, buf_len;
-
-	str = data->str;
-	str_len = strlen(str);
+	int buf_len;
 	
 	/* paste */
 	if (mode == UI_TEXTEDIT_PASTE) {
-		/* TODO, ensure UTF8 ui_but_is_utf8() - campbell */
 		/* extract the first line from the clipboard */
 		pbuf = WM_clipboard_text_get_firstline(false, &buf_len);
 
 		if (pbuf) {
-			char buf[UI_MAX_DRAW_STR] = {0};
-			unsigned int y;
-
-			buf_len = BLI_strncpy_rlen(buf, pbuf, sizeof(buf));
-
-			/* paste over the current selection */
-			if ((but->selend - but->selsta) > 0) {
-				ui_textedit_delete_selection(but, data);
-				str_len = strlen(str);
+			if (ui_but_is_utf8(but)) {
+				buf_len -= BLI_utf8_invalid_strip(pbuf, buf_len);
 			}
-			
-			for (y = 0; y < buf_len; y++) {
-				/* add contents of buffer */
-				if (str_len + 1 < data->maxlen) {
-					for (x = data->maxlen; x > but->pos; x--)
-						str[x] = str[x - 1];
-					str[but->pos] = buf[y];
-					but->pos++; 
-					str_len++;
-					str[str_len] = '\0';
-				}
-			}
+
+			ui_textedit_insert_buf(but, data, pbuf, buf_len);
 
 			changed = true;
-		}
 
-		if (pbuf) {
 			MEM_freeN(pbuf);
 		}
 	}
@@ -2867,7 +2879,7 @@ static bool ui_textedit_copypaste(uiBut *but, uiHandleButtonData *data, const in
 		int sellen = but->selend - but->selsta;
 		char *buf = MEM_mallocN(sizeof(char) * (sellen + 1), "ui_textedit_copypaste");
 
-		BLI_strncpy(buf, str + but->selsta, sellen + 1);
+		BLI_strncpy(buf, data->str + but->selsta, sellen + 1);
 		WM_clipboard_text_set(buf, 0);
 		MEM_freeN(buf);
 		
@@ -2971,14 +2983,21 @@ static void ui_textedit_begin(bContext *C, uiBut *but, uiHandleButtonData *data)
 
 	/* retrieve string */
 	data->maxlen = ui_but_string_get_max_length(but);
-	data->str = MEM_callocN(sizeof(char) * data->maxlen + 1, "textedit str");
-	ui_but_string_get(but, data->str, data->maxlen);
+	if (data->maxlen != 0) {
+		data->str = MEM_callocN(sizeof(char) * data->maxlen, "textedit str");
+		ui_but_string_get(but, data->str, data->maxlen);
+	}
+	else {
+		data->is_str_dynamic = true;
+		data->str = ui_but_string_get_dynamic(but, &data->maxlen);
+	}
 
 	if (ui_but_is_float(but) && !ui_but_is_unit(but)) {
 		BLI_str_rstrip_float_zero(data->str, '\0');
 	}
 
 	if (is_num_but) {
+		BLI_assert(data->is_str_dynamic == false);
 		ui_but_convert_to_unit_alt_name(but, data->str, data->maxlen);
 	}
 
@@ -2986,7 +3005,7 @@ static void ui_textedit_begin(bContext *C, uiBut *but, uiHandleButtonData *data)
 	len = strlen(data->str);
 
 	data->origstr = BLI_strdupn(data->str, len);
-	data->selextend = 0;
+	data->selextend = EXTEND_NONE;
 	data->selstartx = 0.0f;
 
 	/* set cursor pos to the end of the text */
@@ -3360,10 +3379,10 @@ static void ui_do_but_textedit(bContext *C, uiBlock *block, uiBut *but, uiHandle
 				}
 
 				// strcpy(utf8_buf, "12345");
-				changed = ui_textedit_type_buf(but, data, event->utf8_buf, utf8_buf_len);
+				changed = ui_textedit_insert_buf(but, data, event->utf8_buf, utf8_buf_len);
 			}
 			else {
-				changed = ui_textedit_type_ascii(but, data, ascii);
+				changed = ui_textedit_insert_ascii(but, data, ascii);
 			}
 
 			retval = WM_UI_HANDLER_BREAK;
@@ -3383,7 +3402,7 @@ static void ui_do_but_textedit(bContext *C, uiBlock *block, uiBut *but, uiHandle
 			ui_textedit_delete_selection(but, data);
 		}
 		if (event->type == WM_IME_COMPOSITE_EVENT && ime_data->result_len) {
-			ui_textedit_type_buf(
+			ui_textedit_insert_buf(
 			        but, data,
 			        ime_data->str_result,
 			        ime_data->result_len);
@@ -3452,11 +3471,6 @@ static void ui_numedit_begin(uiBut *but, uiHandleButtonData *data)
 		but->editcoba = data->coba;
 	}
 	else if (ELEM(but->type, UI_BTYPE_UNITVEC, UI_BTYPE_HSVCUBE, UI_BTYPE_HSVCIRCLE, UI_BTYPE_COLOR)) {
-		ui_but_v3_get(but, data->origvec);
-		copy_v3_v3(data->vec, data->origvec);
-		but->editvec = data->vec;
-	}
-	else if (ELEM(but->type, UI_BTYPE_UNITVEC, UI_BTYPE_HSVCUBE, UI_BTYPE_HSVCIRCLE_MULTI, UI_BTYPE_COLOR)) {///////////////??PAWEL
 		ui_but_v3_get(but, data->origvec);
 		copy_v3_v3(data->vec, data->origvec);
 		but->editvec = data->vec;
@@ -3978,8 +3992,12 @@ static float ui_numedit_apply_snapf(
 		/* snapping by 10's for float buttons is quite annoying (location, scale...),
 		 * but allow for rotations */
 		if (softrange >= 21.0f) {
+			UnitSettings *unit = but->block->unit;
 			int unit_type = UI_but_unit_type_get(but);
-			if (!ELEM(unit_type, PROP_UNIT_ROTATION)) {
+			if ((unit_type == PROP_UNIT_ROTATION) && (unit->system_rotation != USER_UNIT_ROT_RADIANS)) {
+				/* pass (degrees)*/
+			}
+			else {
 				softrange = 20.0f;
 			}
 		}
@@ -4037,7 +4055,7 @@ static bool ui_numedit_but_NUM(
 	const bool is_float = ui_but_is_float(but);
 
 	/* prevent unwanted drag adjustments */
-	if (ui_but_dragedit_poll(data, mx) == false) {
+	if (ui_but_dragedit_update_mval(data, mx) == false) {
 		return changed;
 	}
 
@@ -4362,7 +4380,9 @@ static bool ui_numedit_but_SLI(
 	float offs;
 
 	/* prevent unwanted drag adjustments */
-	if (ui_but_dragedit_poll(data, mx) == false) {
+	if ((but->type != UI_BTYPE_SCROLL) &&
+	    (ui_but_dragedit_update_mval(data, mx) == false))
+	{
 		return changed;
 	}
 
@@ -5457,13 +5477,13 @@ static bool ui_numedit_but_HSVCIRCLE(
 	bool use_display_colorspace = ui_but_is_colorpicker_display_space(but);
 
 	ui_mouse_scale_warp(data, mx, my, &mx_fl, &my_fl, shift);
-	
+	/*
 #ifdef USE_CONT_MOUSE_CORRECT
 	if (ui_but_is_cursor_warp(but)) {
-		/* OK but can go outside bounds */
+
 		data->ungrab_mval[0] = mx_fl;
 		data->ungrab_mval[1] = my_fl;
-		{	/* clamp */
+		{	
 			const float radius = min_ff(BLI_rctf_size_x(&but->rect), BLI_rctf_size_y(&but->rect)) / 2.0f;
 			const float cent[2] = {BLI_rctf_cent_x(&but->rect), BLI_rctf_cent_y(&but->rect)};
 			const float len = len_v2v2(cent, data->ungrab_mval);
@@ -5473,7 +5493,7 @@ static bool ui_numedit_but_HSVCIRCLE(
 		}
 	}
 #endif
-
+*/
 	BLI_rcti_rctf_copy(&rect, &but->rect);
 
 	ui_but_v3_get(but, rgb);
@@ -5495,10 +5515,10 @@ static bool ui_numedit_but_HSVCIRCLE(
 	}
 
 	/* only apply the delta motion, not absolute */
-	if (shift) {
+	/*if (shift) {
 		float xpos, ypos, hsvo[3], rgbo[3];
 		
-		/* calculate original hsv again */
+
 		copy_v3_v3(hsvo, hsv);
 		copy_v3_v3(rgbo, data->origvec);
 		if (use_display_colorspace)
@@ -5506,13 +5526,13 @@ static bool ui_numedit_but_HSVCIRCLE(
 
 		ui_rgb_to_color_picker_compat_v(rgbo, hsvo);
 
-		/* and original position */
+
 		ui_hsvcircle_pos_from_vals(but, &rect, hsvo, &xpos, &ypos);
 
 		mx_fl = xpos - (data->dragstartx - mx_fl);
 		my_fl = ypos - (data->dragstarty - my_fl);
 		
-	}
+	}*/
 	
 	ui_hsvcircle_vals_from_pos(hsv, hsv + 1, &rect, mx_fl, my_fl);
 
@@ -5632,7 +5652,6 @@ static int ui_do_but_HSVCIRCLE(bContext *C, uiBlock *block, uiBut *but, uiHandle
 			data->draglasty = my;
 			button_activate_state(C, but, BUTTON_STATE_NUM_EDITING);
 			
-			/* also do drag the first time */
 			if (ui_numedit_but_HSVCIRCLE(but, data, mx, my, snap, event->shift != 0))
 				ui_numedit_apply(C, block, but, data);
 			
@@ -5717,28 +5736,92 @@ static int ui_do_but_HSVCIRCLE(bContext *C, uiBlock *block, uiBut *but, uiHandle
 	return WM_UI_HANDLER_CONTINUE;
 }
 
-///////////////////////??PAWEL
-static int ui_do_but_HSVCIRCLE_MULTI(bContext *C, uiBlock *block, uiBut *but, uiHandleButtonData *data, const wmEvent *event)
+
+
+
+
+static bool ui_numedit_but_HSVCIRCLE_MULTI(                                                                                         //////////////////////////////// PAWEL
+        uiBut *but, uiHandleButtonData *data,
+        float mx, float my,
+        const enum eSnapType snap, const bool shift)
+{
+	rcti rect;
+	bool changed = true;
+	float mx_fl, my_fl;
+	float rgb[3];
+	ColorPicker *cpicker = but->custom_data;
+	float *hsv = cpicker->color_data;
+	bool use_display_colorspace = ui_but_is_colorpicker_display_space(but);
+
+	ui_mouse_scale_warp(data, mx, my, &mx_fl, &my_fl, shift);
+	
+	BLI_rcti_rctf_copy(&rect, &but->rect);
+
+	ui_but_v3_get(but, rgb);
+	if (use_display_colorspace)
+		ui_block_cm_to_display_space_v3(but->block, rgb);
+
+	ui_rgb_to_color_picker_compat_v(rgb, hsv);
+
+	ui_hsvcircle_vals_from_pos(hsv, hsv + 1, &rect, mx_fl, my_fl);
+	
+
+
+
+	if ((but->flag & UI_BUT_COLOR_CUBIC) && (U.color_picker_type == USER_CP_CIRCLE_HSV))
+		hsv[1] = 1.0f - sqrt3f(1.0f - hsv[1]);
+
+	if (snap != SNAP_OFF) {
+		ui_color_snap_hue(snap, &hsv[0]);
+	}
+
+	ui_color_picker_to_rgb_v(hsv, rgb);
+
+	if ((but->flag & UI_BUT_VEC_SIZE_LOCK) && (rgb[0] || rgb[1] || rgb[2])) {
+		normalize_v3(rgb);
+		mul_v3_fl(rgb, but->a2);
+	}
+
+	if (use_display_colorspace)
+		ui_block_cm_to_scene_linear_v3(but->block, rgb);
+
+	ui_but_v3_set(but, rgb);
+
+	data->draglastx = mx;
+	data->draglasty = my;
+
+
+
+	
+	return changed;
+}
+
+static int ui_do_but_HSVCIRCLE_MULTI(bContext *C, uiBlock *block, uiBut *but, uiHandleButtonData *data, const wmEvent *event)///////////////////////////////// PAWEL
 {
 	ColorPicker *cpicker = but->custom_data;
 	float *hsv = cpicker->color_data;
-	int mx, my, mx_2, my_2;
+	int mx, my;
+	static int point_list[4][2];
+	static int ct = 0; 
 	mx = event->x;
 	my = event->y;
 	ui_window_to_block(data->region, block, &mx, &my);
 	
 	if (data->state == BUTTON_STATE_HIGHLIGHT) {
-
-		if (event->type == LEFTMOUSE && event->val == KM_PRESS &&  but->dragpoin) {
+		if (event->type == LEFTMOUSE && event->val == KM_PRESS) {
 			const enum eSnapType snap = ui_event_to_snap(event);
 			data->dragstartx = mx;
 			data->dragstarty = my;
 			data->draglastx = mx;
 			data->draglasty = my;
 			button_activate_state(C, but, BUTTON_STATE_NUM_EDITING);
-			
-			/* also do drag the first time */
-			if (ui_numedit_but_HSVCIRCLE(but, data, mx, my, snap, event->shift != 0))
+
+	//const float centx = BLI_rcti_cent_x_fl(&but->rect);
+	//const float centy = BLI_rcti_cent_y_fl(&but->rect);
+	//printf("X: %f, Y %f \n", mx-centx, my-centx);
+
+
+			if (ui_numedit_but_HSVCIRCLE_MULTI(but, data, mx, my, snap, event->shift != 0))
 				ui_numedit_apply(C, block, but, data);
 			
 			return WM_UI_HANDLER_BREAK;
@@ -5808,7 +5891,7 @@ static int ui_do_but_HSVCIRCLE_MULTI(bContext *C, uiBlock *block, uiBut *but, ui
 			if (mx != data->draglastx || my != data->draglasty || event->type != MOUSEMOVE) {
 				const enum eSnapType snap = ui_event_to_snap(event);
 
-				if (ui_numedit_but_HSVCIRCLE(but, data, mx, my, snap, event->shift != 0)) {
+				if (ui_numedit_but_HSVCIRCLE_MULTI(but, data, mx, my, snap, event->shift != 0)) {
 					ui_numedit_apply(C, block, but, data);
 				}
 			}
@@ -6814,28 +6897,42 @@ static bool ui_but_menu(bContext *C, uiBut *but)
 		int w = uiLayoutGetWidth(layout);
 		wmKeyMap *km;
 		wmKeyMapItem *kmi = NULL;
-		int kmi_id = WM_key_event_operator_id(C, but->optype->idname, but->opcontext, prop, true, &km);
+		/* We want to know if this op has a shortcut, be it hotkey or not. */
+		int kmi_id = WM_key_event_operator_id(C, but->optype->idname, but->opcontext, prop, false, &km);
 
 		if (kmi_id)
 			kmi = WM_keymap_item_find_id(km, kmi_id);
 
-		/* keyboard shortcuts */
-		if ((kmi) && ISKEYBOARD(kmi->type)) {
+		/* We do have a shortcut, but only keyboard ones are editbale that way... */
+		if (kmi) {
+			if (ISKEYBOARD(kmi->type)) {
+#if 0			/* would rather use a block but, but gets weirdly positioned... */
+				uiDefBlockBut(block, menu_change_shortcut, but, "Change Shortcut",
+				              0, 0, uiLayoutGetWidth(layout), UI_UNIT_Y, "");
+#endif
 
-			/* would rather use a block but, but gets weirdly positioned... */
-			//uiDefBlockBut(block, menu_change_shortcut, but, "Change Shortcut", 0, 0, uiLayoutGetWidth(layout), UI_UNIT_Y, "");
-			
-			but2 = uiDefIconTextBut(block, UI_BTYPE_BUT, 0, 0, CTX_IFACE_(BLT_I18NCONTEXT_OPERATOR_DEFAULT, "Change Shortcut"),
-			                        0, 0, w, UI_UNIT_Y, NULL, 0, 0, 0, 0, "");
-			UI_but_func_set(but2, popup_change_shortcut_func, but, NULL);
+				but2 = uiDefIconTextBut(block, UI_BTYPE_BUT, 0, ICON_NONE,
+				                        CTX_IFACE_(BLT_I18NCONTEXT_OPERATOR_DEFAULT, "Change Shortcut"),
+				                        0, 0, w, UI_UNIT_Y, NULL, 0, 0, 0, 0, "");
+				UI_but_func_set(but2, popup_change_shortcut_func, but, NULL);
 
-			but2 = uiDefIconTextBut(block, UI_BTYPE_BUT, 0, 0, CTX_IFACE_(BLT_I18NCONTEXT_OPERATOR_DEFAULT, "Remove Shortcut"),
-			                        0, 0, w, UI_UNIT_Y, NULL, 0, 0, 0, 0, "");
-			UI_but_func_set(but2, remove_shortcut_func, but, NULL);
+				but2 = uiDefIconTextBut(block, UI_BTYPE_BUT, 0, ICON_NONE,
+				                        CTX_IFACE_(BLT_I18NCONTEXT_OPERATOR_DEFAULT, "Remove Shortcut"),
+				                        0, 0, w, UI_UNIT_Y, NULL, 0, 0, 0, 0, "");
+				UI_but_func_set(but2, remove_shortcut_func, but, NULL);
+			}
+			else {
+				but2 = uiDefIconTextBut(block, UI_BTYPE_BUT, 0, ICON_NONE, IFACE_("Non-Keyboard Shortcut"),
+				                        0, 0, w, UI_UNIT_Y, NULL, 0, 0, 0, 0,
+				                        TIP_("Only keyboard shortcuts can be edited that way, "
+				                             "please use User Preferences otherwise"));
+				UI_but_flag_enable(but2, UI_BUT_DISABLED);
+			}
 		}
 		/* only show 'add' if there's a suitable key map for it to go in */
 		else if (WM_keymap_guess_opname(C, but->optype->idname)) {
-			but2 = uiDefIconTextBut(block, UI_BTYPE_BUT, 0, 0, CTX_IFACE_(BLT_I18NCONTEXT_OPERATOR_DEFAULT, "Add Shortcut"),
+			but2 = uiDefIconTextBut(block, UI_BTYPE_BUT, 0, ICON_NONE,
+			                        CTX_IFACE_(BLT_I18NCONTEXT_OPERATOR_DEFAULT, "Add Shortcut"),
 			                        0, 0, w, UI_UNIT_Y, NULL, 0, 0, 0, 0, "");
 			UI_but_func_set(but2, popup_add_shortcut_func, but, NULL);
 		}
@@ -7128,7 +7225,8 @@ static int ui_do_button(bContext *C, uiBlock *block, uiBut *but, const wmEvent *
 			retval = ui_do_but_HSVCIRCLE(C, block, but, data, event);
 			break;
 		case UI_BTYPE_HSVCIRCLE_MULTI:
-			retval =  ui_do_but_HSVCIRCLE_MULTI(C, block, but, data, event);
+			retval = ui_do_but_HSVCIRCLE_MULTI(C, block, but, data, event);
+			break;
 		case UI_BTYPE_LINK:
 		case UI_BTYPE_INLINK:
 			retval = ui_do_but_LINK(C, but, data, event);
@@ -7659,8 +7757,14 @@ static void button_activate_state(bContext *C, uiBut *but, uiHandleButtonState s
 	else if (data->state == BUTTON_STATE_NUM_EDITING) {
 		ui_numedit_end(but, data);
 
-		if (but->flag & UI_BUT_DRIVEN)
-			WM_report(C, RPT_INFO, "Can't edit driven number value, see graph editor for the driver setup.");
+		if (but->flag & UI_BUT_DRIVEN) {
+			/* Only warn when editing stepping/dragging the value.
+			 * No warnings should show for editing driver expressions though!
+			 */
+			if (state != BUTTON_STATE_TEXT_EDITING) {
+				WM_report(C, RPT_INFO, "Can't edit driven number value, see graph editor for the driver setup.");
+			}
+		}
 
 		if (ui_but_is_cursor_warp(but)) {
 
@@ -8291,7 +8395,6 @@ static int ui_handle_button_event(bContext *C, const wmEvent *event, uiBut *but)
 
 			case MOUSEMOVE:
 				if (ELEM(but->type, UI_BTYPE_LINK, UI_BTYPE_INLINK)) {
-					ARegion *ar = data->region;
 					but->flag |= UI_SELECT;
 					ui_do_button(C, block, but, event);
 					ED_region_tag_redraw(ar);
@@ -9444,7 +9547,6 @@ static int ui_pie_handler(bContext *C, const wmEvent *event, uiPopupBlockHandle 
 {
 	ARegion *ar;
 	uiBlock *block;
-	uiBut *but;
 	float event_xy[2];
 	double duration;
 	bool is_click_style;
@@ -9488,7 +9590,6 @@ static int ui_pie_handler(bContext *C, const wmEvent *event, uiPopupBlockHandle 
 
 			/* handle animation */
 			if (!(block->pie_data.flags & UI_PIE_ANIMATION_FINISHED)) {
-				uiBut *but;
 				double final_time = 0.01 * U.pie_animation_timeout;
 				float fac = duration / final_time;
 				float pie_radius = U.pie_menu_radius * UI_DPI_FAC;
@@ -9498,7 +9599,7 @@ static int ui_pie_handler(bContext *C, const wmEvent *event, uiPopupBlockHandle 
 					block->pie_data.flags |= UI_PIE_ANIMATION_FINISHED;
 				}
 
-				for (but = block->buttons.first; but; but = but->next) {
+				for (uiBut *but = block->buttons.first; but; but = but->next) {
 					if (but->pie_dir != UI_RADIAL_NONE) {
 						float vec[2];
 						float center[2];
@@ -9653,7 +9754,7 @@ static int ui_pie_handler(bContext *C, const wmEvent *event, uiPopupBlockHandle 
 				if ((event->val  == KM_PRESS || event->val == KM_DBL_CLICK) &&
 				    !IS_EVENT_MOD(event, shift, ctrl, oskey))
 				{
-					for (but = block->buttons.first; but; but = but->next) {
+					for (uiBut *but = block->buttons.first; but; but = but->next) {
 						if (but->menu_key == event->type) {
 							ui_but_pie_button_activate(C, but, menu);
 						}
@@ -9675,7 +9776,7 @@ static int ui_pie_handler(bContext *C, const wmEvent *event, uiPopupBlockHandle 
 			CASE_NUM_TO_DIR(8, UI_RADIAL_N);
 			CASE_NUM_TO_DIR(9, UI_RADIAL_NE);
 			{
-				but = ui_block_pie_dir_activate(block, event, num_dir);
+				uiBut *but = ui_block_pie_dir_activate(block, event, num_dir);
 				retval = ui_but_pie_button_activate(C, but, menu);
 				break;
 			}

@@ -208,11 +208,11 @@ static void restrictbutton_recursive_child(bContext *C, Scene *scene, Object *ob
 					id = ptr.id.data;
 					if (autokeyframe_cfra_can_key(scene, id)) {
 						ReportList *reports = CTX_wm_reports(C);
-						short flag = ANIM_get_keyframing_flags(scene, 1);
+						eInsertKeyFlags key_flag = ANIM_get_keyframing_flags(scene, 1);
 
 						fcu->flag &= ~FCURVE_SELECTED;
 						insert_keyframe(reports, id, action, ((fcu->grp) ? (fcu->grp->name) : (NULL)),
-						                fcu->rna_path, fcu->array_index, CFRA, flag);
+						                fcu->rna_path, fcu->array_index, CFRA, key_flag);
 						/* Assuming this is not necessary here, since 'ancestor' object button will do it anyway. */
 						/* WM_event_add_notifier(C, NC_ANIMATION | ND_KEYFRAME | NA_EDITED, NULL); */
 					}
@@ -1318,7 +1318,16 @@ static void tselem_draw_icon(uiBlock *block, int xmax, float x, float y, TreeSto
 			case ID_GR:
 				tselem_draw_icon_uibut(&arg, ICON_GROUP); break;
 			case ID_LI:
-				tselem_draw_icon_uibut(&arg, ICON_LIBRARY_DATA_DIRECT); break;
+				if (tselem->id->flag & LIB_MISSING) {
+					tselem_draw_icon_uibut(&arg, ICON_LIBRARY_DATA_BROKEN);
+				}
+				else if (((Library *)tselem->id)->parent) {
+					tselem_draw_icon_uibut(&arg, ICON_LIBRARY_DATA_INDIRECT);
+				}
+				else {
+					tselem_draw_icon_uibut(&arg, ICON_LIBRARY_DATA_DIRECT);
+				}
+				break;
 			case ID_LS:
 				tselem_draw_icon_uibut(&arg, ICON_LINE_DATA); break;
 			case ID_GD:
@@ -1553,10 +1562,15 @@ static void outliner_draw_tree_element(
 		
 		if (tselem->type == 0 && tselem->id->lib) {
 			glPixelTransferf(GL_ALPHA_SCALE, 0.5f);
-			if (tselem->id->flag & LIB_INDIRECT)
+			if (tselem->id->flag & LIB_MISSING) {
+				UI_icon_draw((float)startx + offsx, (float)*starty + 2 * ufac, ICON_LIBRARY_DATA_BROKEN);
+			}
+			else if (tselem->id->flag & LIB_INDIRECT) {
 				UI_icon_draw((float)startx + offsx, (float)*starty + 2 * ufac, ICON_LIBRARY_DATA_INDIRECT);
-			else
+			}
+			else {
 				UI_icon_draw((float)startx + offsx, (float)*starty + 2 * ufac, ICON_LIBRARY_DATA_DIRECT);
+			}
 			glPixelTransferf(GL_ALPHA_SCALE, 1.0f);
 			offsx += UI_UNIT_X;
 		}

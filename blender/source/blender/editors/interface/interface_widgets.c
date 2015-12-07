@@ -975,7 +975,7 @@ float UI_text_clip_middle_ex(
 	float strwidth;
 
 	/* Add some epsilon to OK width, avoids 'ellipsing' text that nearly fits!
-	 * Better to have a small piece of the last char cut out, than two remaining chars replaced by an allipsis... */
+	 * Better to have a small piece of the last char cut out, than two remaining chars replaced by an ellipsis... */
 	okwidth += 1.0f + UI_DPI_FAC;
 
 	BLI_assert(str[0]);
@@ -2216,33 +2216,11 @@ static void ui_hsv_cursor(float x, float y)
 	
 	glColor3f(1.0f, 1.0f, 1.0f);
 	glutil_draw_filled_arc(0.0f, M_PI * 2.0, 3.0f * U.pixelsize, 8);
-
+	
 	glEnable(GL_BLEND);
 	glEnable(GL_LINE_SMOOTH);
 	glColor3f(0.0f, 0.0f, 0.0f);
 	glutil_draw_lined_arc(0.0f, M_PI * 2.0, 3.0f * U.pixelsize, 12);
-	glDisable(GL_BLEND);
-	glDisable(GL_LINE_SMOOTH);
-	
-	glPopMatrix();
-}
-
-static void ui_hsv_cursor_1(float x, float y, const rcti *rect)
-{
-	const float radius = (float)min_ii(BLI_rcti_size_x(rect), BLI_rcti_size_y(rect)) / 2.0f;
-
-	glPushMatrix();
-	glTranslatef(x, y, 0.0f);
-	
-	glColor3f(1.0f, 1.0f, 1.0f);
-	glutil_draw_filled_arc(0.0f, M_PI * 2.0, radius/30, 8);
-
-	glEnable(GL_BLEND);
-	glEnable(GL_LINE_SMOOTH);
-	glColor3f(0.0f, 0.0f, 0.0f);
-	glutil_draw_lined_arc(0.0f, M_PI * 2.0, radius/30, 12);
-
-
 	glDisable(GL_BLEND);
 	glDisable(GL_LINE_SMOOTH);
 	
@@ -2259,8 +2237,12 @@ void ui_hsvcircle_vals_from_pos(float *val_rad, float *val_dist, const rcti *rec
 	const float m_delta[2] = {mx - centx, my - centy};
 	const float dist_sq = len_squared_v2(m_delta);
 
+
+
 	*val_dist = (dist_sq < (radius * radius)) ? sqrtf(dist_sq) / radius : 1.0f;
 	*val_rad = atan2f(m_delta[0], m_delta[1]) / (2.0f * (float)M_PI) + 0.5f;
+
+
 }
 
 /* cursor in hsv circle, in float units -1 to 1, to map on radius */
@@ -2284,7 +2266,6 @@ void ui_hsvcircle_pos_from_vals(uiBut *but, const rcti *rect, float *hsv, float 
 	*ypos = centy + sinf(-ang) * radius;
 }
 
-
 static void ui_draw_but_HSVCIRCLE(uiBut *but, uiWidgetColors *wcol, const rcti *rect)
 {
 	const int tot = 64;
@@ -2292,13 +2273,13 @@ static void ui_draw_but_HSVCIRCLE(uiBut *but, uiWidgetColors *wcol, const rcti *
 	const float centx = BLI_rcti_cent_x_fl(rect);
 	const float centy = BLI_rcti_cent_y_fl(rect);
 	float radius = (float)min_ii(BLI_rcti_size_x(rect), BLI_rcti_size_y(rect)) / 2.0f;
+	
+
 
 	/* gouraud triangle fan */
 	ColorPicker *cpicker = but->custom_data;
 	const float *hsv_ptr = cpicker->color_data;
 	float xpos, ypos, ang = 0.0f;
-	float xpos_1, ypos_1, xpos_2, ypos_2, xpos_3, ypos_3; 
-
 	float rgb[3], hsvo[3], hsv[3], col[3], colcent[3];
 	int a;
 	bool color_profile = ui_but_is_colorpicker_display_space(but);
@@ -2332,6 +2313,7 @@ static void ui_draw_but_HSVCIRCLE(uiBut *but, uiWidgetColors *wcol, const rcti *
 	ui_color_picker_to_rgb(0.0f, 0.0f, hsv[2], colcent, colcent + 1, colcent + 2);
 
 	glShadeModel(GL_SMOOTH);
+
 	glBegin(GL_TRIANGLE_FAN);
 	glColor3fv(colcent);
 	glVertex2f(centx, centy);
@@ -2341,11 +2323,14 @@ static void ui_draw_but_HSVCIRCLE(uiBut *but, uiWidgetColors *wcol, const rcti *
 		float co = cosf(ang);
 		
 		ui_hsvcircle_vals_from_pos(hsv, hsv + 1, rect, centx + co * radius, centy + si * radius);
+
 		ui_color_picker_to_rgb_v(hsv, col);
+
 		glColor3fv(col);
 		glVertex2f(centx + co * radius, centy + si * radius);
 	}
 	glEnd();
+	
 	glShadeModel(GL_FLAT);
 	
 	/* fully rounded outline */
@@ -2361,96 +2346,14 @@ static void ui_draw_but_HSVCIRCLE(uiBut *but, uiWidgetColors *wcol, const rcti *
 
 	/* cursor */
 	ui_hsvcircle_pos_from_vals(but, rect, hsvo, &xpos, &ypos);
+
+
+	printf("X: %i, Y %i \n", xpos-centx, ypos-centy );
 
 	ui_hsv_cursor(xpos, ypos);
 
-}
-
-
-static void ui_draw_but_HSVCIRCLE_MULTI(uiBut *but, uiWidgetColors *wcol, const rcti *rect) //////////////////////////// PAWEL
-{
-	const int tot = 64;
-	const float radstep = 2.0f * (float)M_PI / (float)tot;
-	const float centx = BLI_rcti_cent_x_fl(rect);
-	const float centy = BLI_rcti_cent_y_fl(rect);
-	float radius = (float)min_ii(BLI_rcti_size_x(rect), BLI_rcti_size_y(rect)) / 2.0f;
-
-	/* gouraud triangle fan */
-	ColorPicker *cpicker = but->custom_data;
-	const float *hsv_ptr = cpicker->color_data;
-	float xpos, ypos, ang = 0.0f;
-
-	float xpos_1, ypos_1, xpos_2, ypos_2, xpos_3, ypos_3; 
-
-	float rgb[3], hsvo[3], hsv[3], col[3], colcent[3];
-	int a;
-	bool color_profile = ui_but_is_colorpicker_display_space(but);
-		
-	/* color */
-	ui_but_v3_get(but, rgb);
-
-	/* since we use compat functions on both 'hsv' and 'hsvo', they need to be initialized */
-	hsvo[0] = hsv[0] = hsv_ptr[0];
-	hsvo[1] = hsv[1] = hsv_ptr[1];
-	hsvo[2] = hsv[2] = hsv_ptr[2];
-
-	if (color_profile)
-		ui_block_cm_to_display_space_v3(but->block, rgb);
-
-	ui_rgb_to_color_picker_compat_v(rgb, hsv);
-	copy_v3_v3(hsvo, hsv);
-
-	CLAMP(hsv[2], 0.0f, 1.0f); /* for display only */
-
-	/* exception: if 'lock' is set
-	 * lock the value of the color wheel to 1.
-	 * Useful for color correction tools where you're only interested in hue. */
-	if (but->flag & UI_BUT_COLOR_LOCK) {
-		if (U.color_picker_type == USER_CP_CIRCLE_HSV)
-			hsv[2] = 1.0f;
-		else
-			hsv[2] = 0.5f;
-	}
-	
-	ui_color_picker_to_rgb(0.0f, 0.0f, hsv[2], colcent, colcent + 1, colcent + 2);
-
-	glShadeModel(GL_SMOOTH);
-	glBegin(GL_TRIANGLE_FAN);
-	glColor3fv(colcent);
-	glVertex2f(centx, centy);
-	
-	for (a = 0; a <= tot; a++, ang += radstep) {
-		float si = sinf(ang);
-		float co = cosf(ang);
-		
-		ui_hsvcircle_vals_from_pos(hsv, hsv + 1, rect, centx + co * radius, centy + si * radius);
-		ui_color_picker_to_rgb_v(hsv, col);
-		glColor3fv(col);
-		glVertex2f(centx + co * radius, centy + si * radius);
-	}
-	glEnd();
-	glShadeModel(GL_FLAT);
-	
-	/* fully rounded outline */
-	glPushMatrix();
-	glTranslatef(centx, centy, 0.0f);
-	glEnable(GL_BLEND);
-	glEnable(GL_LINE_SMOOTH);
-	glColor3ubv((unsigned char *)wcol->outline);
-	glutil_draw_lined_arc(0.0f, M_PI * 2.0, radius, tot + 1);
-	glDisable(GL_BLEND);
-	glDisable(GL_LINE_SMOOTH);
-	glPopMatrix();
-
-	/* cursor */
-	ui_hsvcircle_pos_from_vals(but, rect, hsvo, &xpos, &ypos);
-
-	ui_hsv_cursor_1(xpos, ypos,rect);
 
 }
-
-
-
 
 /* ************ custom buttons, old stuff ************** */
 
@@ -3656,9 +3559,9 @@ static int widget_roundbox_set(uiBut *but, rcti *rect)
 	if ((but->drawflag & UI_BUT_ALIGN) && but->type != UI_BTYPE_PULLDOWN) {
 		
 		/* ui_block_position has this correction too, keep in sync */
-		if (but->drawflag & UI_BUT_ALIGN_TOP)
+		if (but->drawflag & (UI_BUT_ALIGN_TOP | UI_BUT_ALIGN_STITCH_TOP))
 			rect->ymax += U.pixelsize;
-		if (but->drawflag & UI_BUT_ALIGN_LEFT)
+		if (but->drawflag & (UI_BUT_ALIGN_LEFT | UI_BUT_ALIGN_STITCH_LEFT))
 			rect->xmin -= U.pixelsize;
 		
 		switch (but->drawflag & UI_BUT_ALIGN) {
@@ -3866,10 +3769,9 @@ void ui_draw_but(const bContext *C, ARegion *ar, uiStyle *style, uiBut *but, rct
 			case UI_BTYPE_HSVCIRCLE:
 				ui_draw_but_HSVCIRCLE(but, &tui->wcol_regular, rect);
 				break;
-
 			case UI_BTYPE_HSVCIRCLE_MULTI:
-				ui_draw_but_HSVCIRCLE_MULTI(but, &tui->wcol_regular, rect);
-				break;				
+				ui_draw_but_HSVCIRCLE(but, &tui->wcol_regular, rect);
+				break;
 				
 			case UI_BTYPE_COLORBAND:
 				ui_draw_but_COLORBAND(but, &tui->wcol_regular, rect);

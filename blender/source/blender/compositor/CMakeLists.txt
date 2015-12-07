@@ -172,8 +172,8 @@ set(SRC
 	nodes/COM_ChannelMatteNode.h
 	nodes/COM_LensDistortionNode.cpp
 	nodes/COM_LensDistortionNode.h
-	
-nodes/COM_GlareNode.cpp
+
+	nodes/COM_GlareNode.cpp
 	nodes/COM_GlareNode.h
 
 	nodes/COM_SunBeamsNode.cpp
@@ -412,7 +412,6 @@ nodes/COM_GlareNode.cpp
 	operations/COM_ColorMatteOperation.h
 	operations/COM_ChannelMatteOperation.cpp
 	operations/COM_ChannelMatteOperation.h
-	
 
 	operations/COM_ReadBufferOperation.cpp
 	operations/COM_ReadBufferOperation.h

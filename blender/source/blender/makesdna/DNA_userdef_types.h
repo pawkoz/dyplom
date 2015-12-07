@@ -683,7 +683,6 @@ typedef enum eUserpref_UI_Flag2 {
 	USER_KEEP_SESSION			= (1 << 0),
 	USER_REGION_OVERLAP			= (1 << 1),
 	USER_TRACKPAD_NATURAL		= (1 << 2),
-	USER_OPENGL_NO_WARN_SUPPORT	= (1 << 3)
 } eUserpref_UI_Flag2;
 	
 /* Auto-Keying mode */
@@ -754,7 +753,7 @@ typedef enum eOpenGL_RenderingOptions {
 	/* USER_DISABLE_SOUND		= (1 << 1), */ /* deprecated, don't use without checking for */
 	                                     /* backwards compatibilty in do_versions! */
 	USER_DISABLE_MIPMAP		= (1 << 2),
-	USER_DISABLE_VBO		= (1 << 3),
+	/* USER_DISABLE_VBO		= (1 << 3), */ /* DEPRECATED we always use vertex buffers now */
 	/* USER_DISABLE_AA			= (1 << 4), */ /* DEPRECATED */
 } eOpenGL_RenderingOptions;
 
@@ -802,19 +801,23 @@ typedef enum eTimecodeStyles {
 	 * with '+' to denote the frames 
 	 * i.e. HH:MM:SS+FF, MM:SS+FF, SS+FF, or MM:SS
 	 */
-	USER_TIMECODE_MINIMAL		= 0,
-	
+	USER_TIMECODE_MINIMAL       = 0,
+
 	/* reduced SMPTE - (HH:)MM:SS:FF */
-	USER_TIMECODE_SMPTE_MSF		= 1,
-	
+	USER_TIMECODE_SMPTE_MSF     = 1,
+
 	/* full SMPTE - HH:MM:SS:FF */
-	USER_TIMECODE_SMPTE_FULL	= 2,
-	
+	USER_TIMECODE_SMPTE_FULL    = 2,
+
 	/* milliseconds for sub-frames - HH:MM:SS.sss */
-	USER_TIMECODE_MILLISECONDS	= 3,
-	
+	USER_TIMECODE_MILLISECONDS  = 3,
+
 	/* seconds only */
-	USER_TIMECODE_SECONDS_ONLY	= 4,
+	USER_TIMECODE_SECONDS_ONLY  = 4,
+
+	/* Private (not exposed as generic choices) options. */
+	/* milliseconds for sub-frames , SubRip format- HH:MM:SS,sss */
+	USER_TIMECODE_SUBRIP        = 100,
 } eTimecodeStyles;
 
 /* theme drawtypes */

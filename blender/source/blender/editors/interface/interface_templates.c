@@ -275,7 +275,7 @@ static void template_id_cb(bContext *C, void *arg_litem, void *arg_event)
 
 			if (id && CTX_wm_window(C)->eventstate->shift) {
 				/* only way to force-remove data (on save) */
-				id->flag &= ~LIB_FAKEUSER;
+				id_fake_user_clear(id);
 				id->us = 0;
 			}
 
@@ -2282,7 +2282,7 @@ void uiTemplateCurveMapping(
 
 /********************* ColorPicker Template ************************/
 
-#define WHEEL_SIZE  (9 * U.widget_unit)
+#define WHEEL_SIZE  (5 * U.widget_unit)
 
 /* This template now follows User Preference for type - name is not correct anymore... */
 void uiTemplateColorPicker(
@@ -2383,8 +2383,8 @@ void uiTemplateColorPicker(
 	}
 }
 
-/* Template for multiple selection */
-void uiTemplateColorMultiPicker(  //////////////////////////// PAWEL
+#define WHEEL_SIZE_2  (9 * U.widget_unit)
+void uiTemplateColorMultiPicker(
         uiLayout *layout, PointerRNA *ptr, const char *propname, int value_slider,
         int lock, int lock_luminosity, int cubic)
 {
@@ -2423,7 +2423,7 @@ void uiTemplateColorMultiPicker(  //////////////////////////// PAWEL
 		case USER_CP_CIRCLE_HSV:
 		case USER_CP_CIRCLE_HSL:
 		default:
-			but = uiDefButR_prop(block, UI_BTYPE_HSVCIRCLE_MULTI, 0, "", 0, 0, WHEEL_SIZE, WHEEL_SIZE, ptr, prop,
+			but = uiDefButR_prop(block, UI_BTYPE_HSVCIRCLE_MULTI, 0, "", 0, 0, WHEEL_SIZE_2, WHEEL_SIZE_2, ptr, prop,
 			                     -1, 0.0, 0.0, 0, 0, "");
 			break;
 
@@ -2482,7 +2482,6 @@ void uiTemplateColorMultiPicker(  //////////////////////////// PAWEL
 	}
 }
 
-
 void uiTemplatePalette(uiLayout *layout, PointerRNA *ptr, const char *propname, int UNUSED(colors))
 {
 	PropertyRNA *prop = RNA_struct_find_property(ptr, propname);
@@ -2518,15 +2517,15 @@ void uiTemplatePalette(uiLayout *layout, PointerRNA *ptr, const char *propname, 
 	uiLayoutRow(col, true);
 
 	for (; color; color = color->next) {
-		PointerRNA ptr;
+		PointerRNA color_ptr;
 
 		if (row_cols >= cols_per_row) {
 			uiLayoutRow(col, true);
 			row_cols = 0;
 		}
 
-		RNA_pointer_create(&palette->id, &RNA_PaletteColor, color, &ptr);
-		uiDefButR(block, UI_BTYPE_COLOR, 0, "", 0, 0, UI_UNIT_X, UI_UNIT_Y, &ptr, "color", -1, 0.0, 1.0,
+		RNA_pointer_create(&palette->id, &RNA_PaletteColor, color, &color_ptr);
+		uiDefButR(block, UI_BTYPE_COLOR, 0, "", 0, 0, UI_UNIT_X, UI_UNIT_Y, &color_ptr, "color", -1, 0.0, 1.0,
 		          UI_PALETTE_COLOR, col_id, "");
 		row_cols++;
 		col_id++;

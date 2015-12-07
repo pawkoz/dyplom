@@ -46,7 +46,6 @@ set(INC_SYS
 )
 
 set(SRC
-
 	composite/nodes/node_composite_alphaOver.c
 	composite/nodes/node_composite_bilateralblur.c
 	composite/nodes/node_composite_blur.c

@@ -70,7 +70,6 @@
 
 #include "interface_intern.h"
 
-#define MENU_TOP			(int)(8 * UI_DPI_FAC)
 #define MENU_PADDING		(int)(0.2f * UI_UNIT_Y)
 #define MENU_BORDER			(int)(0.3f * U.widget_unit)
 
@@ -112,13 +111,19 @@ bool ui_but_menu_step_poll(const uiBut *but)
 	BLI_assert(but->type == UI_BTYPE_MENU);
 
 	/* currenly only RNA buttons */
-	return (but->rnaprop && RNA_property_type(but->rnaprop) == PROP_ENUM);
+	return ((but->menu_step_func != NULL) ||
+	        (but->rnaprop && RNA_property_type(but->rnaprop) == PROP_ENUM));
 }
 
 int ui_but_menu_step(uiBut *but, int direction)
 {
 	if (ui_but_menu_step_poll(but)) {
-		return rna_property_enum_step(but->block->evil_C, &but->rnapoin, but->rnaprop, direction);
+		if (but->menu_step_func) {
+			return but->menu_step_func(but->block->evil_C, direction, but->poin);
+		}
+		else {
+			return rna_property_enum_step(but->block->evil_C, &but->rnapoin, but->rnaprop, direction);
+		}
 	}
 
 	printf("%s: cannot cycle button '%s'\n", __func__, but->str);
@@ -233,9 +238,9 @@ static void ui_tooltip_region_draw_cb(const bContext *UNUSED(C), ARegion *ar)
 	int i, multisample_enabled;
 
 	/* disable AA, makes widgets too blurry */
-	multisample_enabled = glIsEnabled(GL_MULTISAMPLE_ARB);
+	multisample_enabled = glIsEnabled(GL_MULTISAMPLE);
 	if (multisample_enabled)
-		glDisable(GL_MULTISAMPLE_ARB);
+		glDisable(GL_MULTISAMPLE);
 
 	wmOrtho2_region_ui(ar);
 
@@ -337,7 +342,7 @@ static void ui_tooltip_region_draw_cb(const bContext *UNUSED(C), ARegion *ar)
 	BLF_disable(blf_mono_font, BLF_WORD_WRAP);
 
 	if (multisample_enabled)
-		glEnable(GL_MULTISAMPLE_ARB);
+		glEnable(GL_MULTISAMPLE);
 }
 
 static void ui_tooltip_region_free_cb(ARegion *ar)
@@ -822,7 +827,7 @@ bool UI_search_item_add(uiSearchItems *items, const char *name, void *poin, int 
 
 int UI_searchbox_size_y(void)
 {
-	return SEARCH_ITEMS * UI_UNIT_Y + 2 * MENU_TOP;
+	return SEARCH_ITEMS * UI_UNIT_Y + 2 * UI_POPUP_MENU_TOP;
 }
 
 int UI_searchbox_size_x(void)
@@ -898,13 +903,13 @@ static void ui_searchbox_butrect(rcti *r_rect, uiSearchboxData *data, int itemnr
 	}
 	/* list view */
 	else {
-		int buth = (BLI_rcti_size_y(&data->bbox) - 2 * MENU_TOP) / SEARCH_ITEMS;
+		int buth = (BLI_rcti_size_y(&data->bbox) - 2 * UI_POPUP_MENU_TOP) / SEARCH_ITEMS;
 		
 		*r_rect = data->bbox;
 		r_rect->xmin = data->bbox.xmin + 3.0f;
 		r_rect->xmax = data->bbox.xmax - 3.0f;
 		
-		r_rect->ymax = data->bbox.ymax - MENU_TOP - itemnr * buth;
+		r_rect->ymax = data->bbox.ymax - UI_POPUP_MENU_TOP - itemnr * buth;
 		r_rect->ymin = r_rect->ymax - buth;
 	}
 	
@@ -1630,8 +1635,8 @@ static void ui_popup_block_clip(wmWindow *window, uiBlock *block)
 	
 	if (block->rect.ymin < width)
 		block->rect.ymin = width;
-	if (block->rect.ymax > winy - MENU_TOP)
-		block->rect.ymax = winy - MENU_TOP;
+	if (block->rect.ymax > winy - UI_POPUP_MENU_TOP)
+		block->rect.ymax = winy - UI_POPUP_MENU_TOP;
 	
 	/* ensure menu items draw inside left/right boundary */
 	for (bt = block->buttons.first; bt; bt = bt->next) {
@@ -1760,7 +1765,6 @@ uiBlock *ui_popup_block_refresh(
 	}
 
 	if (block->flag & UI_BLOCK_RADIAL) {
-		uiBut *but;
 		int win_width = UI_SCREEN_MARGIN;
 		int winx, winy;
 
@@ -1802,9 +1806,9 @@ uiBlock *ui_popup_block_refresh(
 
 		/* lastly set the buttons at the center of the pie menu, ready for animation */
 		if (U.pie_animation_timeout > 0) {
-			for (but = block->buttons.first; but; but = but->next) {
-				if (but->pie_dir != UI_RADIAL_NONE) {
-					BLI_rctf_recenter(&but->rect, UNPACK2(block->pie_data.pie_center_spawned));
+			for (uiBut *but_iter = block->buttons.first; but_iter; but_iter = but_iter->next) {
+				if (but_iter->pie_dir != UI_RADIAL_NONE) {
+					BLI_rctf_recenter(&but_iter->rect, UNPACK2(block->pie_data.pie_center_spawned));
 				}
 			}
 		}
@@ -1818,7 +1822,7 @@ uiBlock *ui_popup_block_refresh(
 		ar->winrct.xmin = block->rect.xmin - margin;
 		ar->winrct.xmax = block->rect.xmax + margin;
 		ar->winrct.ymin = block->rect.ymin - margin;
-		ar->winrct.ymax = block->rect.ymax + MENU_TOP;
+		ar->winrct.ymax = block->rect.ymax + UI_POPUP_MENU_TOP;
 
 		ui_block_translate(block, -ar->winrct.xmin, -ar->winrct.ymin);
 	}
@@ -2144,6 +2148,7 @@ static void ui_colorpicker_circle(uiBlock *block, PointerRNA *ptr, PropertyRNA *
 	}
 	bt->custom_data = cpicker;
 }
+
 
 static void ui_colorpicker_square(uiBlock *block, PointerRNA *ptr, PropertyRNA *prop, int type, ColorPicker *cpicker)
 {

@@ -64,8 +64,39 @@ ccl_device void compute_light_pass(KernelGlobals *kg, ShaderData *sd, PathRadian
 		/* sample subsurface scattering */
 		if((is_combined || is_sss_sample) && (sd->flag & SD_BSSRDF)) {
 			/* when mixing BSSRDF and BSDF closures we should skip BSDF lighting if scattering was successful */
-			if(kernel_path_subsurface_scatter(kg, sd, &L_sample, &state, &rng, &ray, &throughput))
+			SubsurfaceIndirectRays ss_indirect;
+			if(kernel_path_subsurface_scatter(kg,
+			                                  sd,
+			                                  &L_sample,
+			                                  &state,
+			                                  &rng,
+			                                  &ray,
+			                                  &throughput,
+			                                  &ss_indirect))
+			{
+				while(ss_indirect.num_rays) {
+					kernel_path_subsurface_setup_indirect(kg,
+					                                      &ss_indirect,
+					                                      &state,
+					                                      &ray,
+					                                      &ray,
+					                                      &throughput);
+					kernel_path_indirect(kg,
+					                     &rng,
+					                     &ray,
+					                     throughput,
+					                     state.num_samples,
+					                     &state,
+					                     &L_sample);
+
+					/* For render passes, sum and reset indirect light pass variables
+					 * for the next samples.
+					 */
+					path_radiance_sum_indirect(&L_sample);
+					path_radiance_reset_indirect(&L_sample);
+				}
 				is_sss_sample = true;
+			}
 		}
 #endif
 
@@ -84,7 +115,7 @@ ccl_device void compute_light_pass(KernelGlobals *kg, ShaderData *sd, PathRadian
 				state.ray_t = 0.0f;
 #endif
 				/* compute indirect light */
-				kernel_path_indirect(kg, &rng, ray, throughput, 1, state, &L_sample);
+				kernel_path_indirect(kg, &rng, &ray, throughput, 1, &state, &L_sample);
 
 				/* sum and reset indirect light pass variables for the next samples */
 				path_radiance_sum_indirect(&L_sample);
@@ -150,7 +181,7 @@ ccl_device bool is_aa_pass(ShaderEvalType type)
 
 ccl_device bool is_light_pass(ShaderEvalType type)
 {
-	switch (type) {
+	switch(type) {
 		case SHADER_EVAL_AO:
 		case SHADER_EVAL_COMBINED:
 		case SHADER_EVAL_SHADOW:
@@ -262,7 +293,7 @@ ccl_device void kernel_bake_evaluate(KernelGlobals *kg, ccl_global uint4 *input,
 		                   sample);
 	}
 
-	switch (type) {
+	switch(type) {
 		/* data passes */
 		case SHADER_EVAL_NORMAL:
 		{
