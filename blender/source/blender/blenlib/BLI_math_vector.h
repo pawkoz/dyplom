@@ -49,6 +49,7 @@ MINLINE void zero_v2(float r[2]);
 MINLINE void zero_v3(float r[3]);
 MINLINE void zero_v4(float r[4]);
 
+MINLINE void copy_v1_v1(float r, const float a);
 MINLINE void copy_v2_v2(float r[2], const float a[2]);
 MINLINE void copy_v3_v3(float r[3], const float a[3]);
 MINLINE void copy_v4_v4(float r[4], const float a[4]);

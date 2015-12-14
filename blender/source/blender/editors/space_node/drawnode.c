@@ -1724,19 +1724,17 @@ static void node_composit_buts_chroma_matte(uiLayout *layout, bContext *UNUSED(C
 static void node_composit_buts_color_matte(uiLayout *layout, bContext *UNUSED(C), PointerRNA *ptr)
 {
 
-	uiItemR(layout, ptr, "correction_method", 0, NULL, ICON_NONE);
-	
-	if (RNA_enum_get(ptr, "correction_method") == 0) 
-	{
-		uiTemplateColorMultiPicker(layout, ptr, "gain_1", 1, 1, 1, 1);
-		uiItemR(layout, ptr, "gain_1", 0, NULL, ICON_NONE);
-	}
-	else
-	{
-		uiTemplateColorMultiPicker(layout, ptr, "gain_1", 1, 1, 1, 1);
-		uiItemR(layout, ptr, "gain_1", 0, NULL, ICON_NONE);
-	}
+	uiLayout *split, *col, *row;
 
+		split = uiLayoutSplit(layout, 0.0f, false);
+		col = uiLayoutColumn(split, false);
+		uiItemR(col, ptr, "width", 0, NULL, ICON_NONE);
+		uiItemR(col, ptr, "height", 0, NULL, ICON_NONE);
+		uiItemR(col, ptr, "angle", 0, NULL, ICON_NONE);
+		uiItemR(col, ptr, "gain", 0, NULL, ICON_NONE);
+
+		col = uiLayoutColumn(split, false);
+		uiTemplateColorMultiPicker(col, ptr, "gain", 1, 1, 1, 1);
 
 }
 

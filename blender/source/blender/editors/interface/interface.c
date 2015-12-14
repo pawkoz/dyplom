@@ -2960,6 +2960,8 @@ void ui_but_update(uiBut *but)
 		case UI_BTYPE_HSVCUBE:
 		case UI_BTYPE_HSVCIRCLE:
 			break;
+		case UI_BTYPE_HSVCIRCLE_MULTI:
+			break;
 		default:
 			BLI_strncpy(but->drawstr, but->str, UI_MAX_DRAW_STR);
 			break;
@@ -3333,6 +3335,9 @@ static uiBut *ui_def_but_rna(
 		BLI_assert(index == -1);
 	}
 
+	if (ELEM(type, UI_BTYPE_COLOR, UI_BTYPE_HSVCIRCLE_MULTI, UI_BTYPE_HSVCUBE)) {
+		BLI_assert(index == -1);
+	}
 	/* use rna values if parameters are not specified */
 	if ((proptype == PROP_ENUM) && ELEM(type, UI_BTYPE_MENU, UI_BTYPE_ROW, UI_BTYPE_LISTROW)) {
 		/* UI_BTYPE_MENU is handled a little differently here */

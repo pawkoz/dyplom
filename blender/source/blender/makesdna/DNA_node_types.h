@@ -695,6 +695,13 @@ typedef struct NodeColorBalance {
 	float gain[3];
 } NodeColorBalance;
 
+typedef struct NodeDiamond {
+	float screen_balance;
+	float despill_balance;
+	float t2;
+	float gain[3];
+}NodeDiamond;
+
 typedef struct NodeColorspill {
 	short limchan, unspill;
 	float limscale;

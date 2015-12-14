@@ -57,6 +57,7 @@
 
 #include "interface_intern.h"
 
+
 #ifdef WITH_INPUT_IME
 #  include "WM_types.h"
 #endif
@@ -1986,7 +1987,7 @@ static void widget_state(uiWidgetType *wt, int state)
 		else if (state & UI_BUT_DRIVEN)
 			widget_state_blend(wt->wcol.inner, wcol_state->inner_driven, wcol_state->blend);
 
-		if (state & UI_ACTIVE) { /* mouse over? */
+		if (state & UI_ACTIVE) { 
 			wt->wcol.inner[0] = wt->wcol.inner[0] >= 240 ? 255 : wt->wcol.inner[0] + 15;
 			wt->wcol.inner[1] = wt->wcol.inner[1] >= 240 ? 255 : wt->wcol.inner[1] + 15;
 			wt->wcol.inner[2] = wt->wcol.inner[2] >= 240 ? 255 : wt->wcol.inner[2] + 15;
@@ -2213,18 +2214,63 @@ static void ui_hsv_cursor(float x, float y)
 {
 	glPushMatrix();
 	glTranslatef(x, y, 0.0f);
-	
 	glColor3f(1.0f, 1.0f, 1.0f);
 	glutil_draw_filled_arc(0.0f, M_PI * 2.0, 3.0f * U.pixelsize, 8);
-	
 	glEnable(GL_BLEND);
 	glEnable(GL_LINE_SMOOTH);
 	glColor3f(0.0f, 0.0f, 0.0f);
 	glutil_draw_lined_arc(0.0f, M_PI * 2.0, 3.0f * U.pixelsize, 12);
 	glDisable(GL_BLEND);
 	glDisable(GL_LINE_SMOOTH);
+	glPopMatrix();
+}
+
+static void ui_hsv_cursor_1(float x, float y, const rcti *rect)
+{
+	const float radius = (float)min_ii(BLI_rcti_size_x(rect), BLI_rcti_size_y(rect)) / 2.0f;
+
+	glPushMatrix();
+	glTranslatef(x, y, 0.0f);
+	
+	glColor3f(1.0f, 1.0f, 1.0f);
+	glutil_draw_filled_arc(0.0f, M_PI * 2.0, radius/40, 8);
+
+	glEnable(GL_BLEND);
+	glEnable(GL_LINE_SMOOTH);
+	glColor3f(0.0f, 0.0f, 0.0f);
+	glutil_draw_lined_arc(0.0f, M_PI * 2.0, radius/40, 12);
+
+	glDisable(GL_BLEND);
+	glDisable(GL_LINE_SMOOTH);
 	
 	glPopMatrix();
+}
+
+static void ui_hsv_multi(float xpos, float ypos, float w, float h, rcti *rect)
+{
+	ui_hsv_cursor_1(xpos-w/2, ypos, rect);
+	ui_hsv_cursor_1(xpos+w/2, ypos, rect);
+	ui_hsv_cursor_1(xpos, ypos-h/2, rect);
+	ui_hsv_cursor_1(xpos, ypos+h/2, rect);
+}
+
+static void ui_hsv_line(float xpos, float ypos, float w, float h)
+{
+
+	glBegin(GL_LINES);
+	glLineWidth(20.0); 
+	glVertex3f(xpos-w/2, ypos, 0);
+	glVertex3f(xpos, ypos-h/2, 0);
+
+	glVertex3f(xpos, ypos-h/2, 0);
+	glVertex3f(xpos+w/2, ypos, 0);
+
+	glVertex3f(xpos+w/2, ypos, 0);
+	glVertex3f(xpos, ypos+h/2, 0);
+
+	glVertex3f(xpos-w/2, ypos, 0);
+	glVertex3f(xpos, ypos+h/2, 0);
+	glEnd();
 }
 
 void ui_hsvcircle_vals_from_pos(float *val_rad, float *val_dist, const rcti *rect,
@@ -2265,6 +2311,20 @@ void ui_hsvcircle_pos_from_vals(uiBut *but, const rcti *rect, float *hsv, float 
 	*xpos = centx + cosf(-ang) * radius;
 	*ypos = centy + sinf(-ang) * radius;
 }
+
+
+void get_w()
+{
+
+
+}
+
+
+void get_b()
+{
+
+}
+
 
 static void ui_draw_but_HSVCIRCLE(uiBut *but, uiWidgetColors *wcol, const rcti *rect)
 {
@@ -2346,12 +2406,106 @@ static void ui_draw_but_HSVCIRCLE(uiBut *but, uiWidgetColors *wcol, const rcti *
 
 	/* cursor */
 	ui_hsvcircle_pos_from_vals(but, rect, hsvo, &xpos, &ypos);
-
-
-	printf("X: %i, Y %i \n", xpos-centx, ypos-centy );
-
 	ui_hsv_cursor(xpos, ypos);
+	//printf("X: %f, Y %f \n", mx-centx, my-centy ); ///////////////////////////////////////// PAWEL
 
+
+
+}
+
+
+static void ui_draw_but_HSVCIRCLE_MULTI(uiBut *but, uiWidgetColors *wcol, const rcti *rect)
+{
+	const int tot = 64;
+	const float radstep = 2.0f * (float)M_PI / (float)tot;
+	const float centx = BLI_rcti_cent_x_fl(rect);
+	const float centy = BLI_rcti_cent_y_fl(rect);
+	float radius = (float)min_ii(BLI_rcti_size_x(rect), BLI_rcti_size_y(rect)) / 2.0f;
+	
+
+
+	/* gouraud triangle fan */
+	ColorPicker *cpicker = but->custom_data;
+	const float *hsv_ptr = cpicker->color_data;
+	float xpos, ypos, ang = 0.0f;
+	float rgb[3], hsvo[3], hsv[3], col[3], colcent[3];
+	int a;
+	bool color_profile = ui_but_is_colorpicker_display_space(but);
+	int m = 0;
+	/* color */
+	ui_but_v3_get(but, rgb);
+
+	/* since we use compat functions on both 'hsv' and 'hsvo', they need to be initialized */
+	hsvo[0] = hsv[0] = hsv_ptr[0];
+	hsvo[1] = hsv[1] = hsv_ptr[1];
+	hsvo[2] = hsv[2] = hsv_ptr[2];
+
+	if (color_profile)
+		ui_block_cm_to_display_space_v3(but->block, rgb);
+
+	ui_rgb_to_color_picker_compat_v(rgb, hsv);
+	copy_v3_v3(hsvo, hsv);
+
+	CLAMP(hsv[2], 0.0f, 1.0f); /* for display only */
+
+	/* exception: if 'lock' is set
+	 * lock the value of the color wheel to 1.
+	 * Useful for color correction tools where you're only interested in hue. */
+	if (but->flag & UI_BUT_COLOR_LOCK) {
+		if (U.color_picker_type == USER_CP_CIRCLE_HSV)
+			hsv[2] = 1.0f;
+		else
+			hsv[2] = 0.5f;
+	}
+	
+	ui_color_picker_to_rgb(0.0f, 0.0f, hsv[2], colcent, colcent + 1, colcent + 2);
+
+	glShadeModel(GL_SMOOTH);
+
+	glBegin(GL_TRIANGLE_FAN);
+	glColor3fv(colcent);
+	glVertex2f(centx, centy);
+	
+	for (a = 0; a <= tot; a++, ang += radstep) {
+		float si = sinf(ang);
+		float co = cosf(ang);
+		
+		ui_hsvcircle_vals_from_pos(hsv, hsv + 1, rect, centx + co * radius, centy + si * radius);
+
+		ui_color_picker_to_rgb_v(hsv, col);
+
+		glColor3fv(col);
+		glVertex2f(centx + co * radius, centy + si * radius);
+	}
+	glEnd();
+	
+	glShadeModel(GL_FLAT);
+	
+	/* fully rounded outline */
+	glPushMatrix();
+	glTranslatef(centx, centy, 0.0f);
+	glEnable(GL_BLEND);
+	glEnable(GL_LINE_SMOOTH);
+	glColor3ubv((unsigned char *)wcol->outline);
+	glutil_draw_lined_arc(0.0f, M_PI * 2.0, radius, tot + 1);
+	glDisable(GL_BLEND);
+	glDisable(GL_LINE_SMOOTH);
+	glPopMatrix();
+
+	/* cursor */
+	ui_hsvcircle_pos_from_vals(but, rect, hsvo, &xpos, &ypos);
+
+
+
+	int ws = 10*(radius/35);
+	int hs = 10*(radius/35);
+ 	ui_hsv_multi(xpos, ypos, ws, hs, rect);
+	ui_hsv_line(xpos, ypos, ws, hs);
+
+	int wb = 30*(radius/35);
+	int hb = 30*(radius/35);
+ 	ui_hsv_multi(xpos, ypos, wb, hb, rect);
+	ui_hsv_line(xpos, ypos, wb, hb);
 
 }
 
@@ -3770,7 +3924,7 @@ void ui_draw_but(const bContext *C, ARegion *ar, uiStyle *style, uiBut *but, rct
 				ui_draw_but_HSVCIRCLE(but, &tui->wcol_regular, rect);
 				break;
 			case UI_BTYPE_HSVCIRCLE_MULTI:
-				ui_draw_but_HSVCIRCLE(but, &tui->wcol_regular, rect);
+				ui_draw_but_HSVCIRCLE_MULTI(but, &tui->wcol_regular, rect);
 				break;
 				
 			case UI_BTYPE_COLORBAND:

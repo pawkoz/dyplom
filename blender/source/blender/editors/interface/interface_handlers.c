@@ -541,6 +541,15 @@ static bool ui_but_is_cursor_warp(uiBut *but)
 		}
 	}
 
+if (U.uiflag & USER_CONTINUOUS_MOUSE) {
+		if (ELEM(but->type,
+		         UI_BTYPE_NUM, UI_BTYPE_NUM_SLIDER, UI_BTYPE_HSVCIRCLE_MULTI,
+		         UI_BTYPE_TRACK_PREVIEW, UI_BTYPE_HSVCUBE, UI_BTYPE_CURVE))
+		{
+			return true;
+		}
+	}
+
 	return false;
 }
 
@@ -2095,6 +2104,9 @@ static void ui_apply_but(bContext *C, uiBlock *block, uiBut *but, uiHandleButton
 		case UI_BTYPE_HSVCIRCLE:
 			ui_apply_but_VEC(C, but, data);
 			break;
+		case UI_BTYPE_HSVCIRCLE_MULTI:
+			ui_apply_but_VEC(C, but, data);
+			break;
 		case UI_BTYPE_COLORBAND:
 			ui_apply_but_COLORBAND(C, but, data);
 			break;
@@ -3471,6 +3483,11 @@ static void ui_numedit_begin(uiBut *but, uiHandleButtonData *data)
 		but->editcoba = data->coba;
 	}
 	else if (ELEM(but->type, UI_BTYPE_UNITVEC, UI_BTYPE_HSVCUBE, UI_BTYPE_HSVCIRCLE, UI_BTYPE_COLOR)) {
+		ui_but_v3_get(but, data->origvec);
+		copy_v3_v3(data->vec, data->origvec);
+		but->editvec = data->vec;
+	}
+	else if (ELEM(but->type, UI_BTYPE_UNITVEC, UI_BTYPE_HSVCUBE, UI_BTYPE_HSVCIRCLE_MULTI, UI_BTYPE_COLOR)) {
 		ui_but_v3_get(but, data->origvec);
 		copy_v3_v3(data->vec, data->origvec);
 		but->editvec = data->vec;
@@ -5477,7 +5494,7 @@ static bool ui_numedit_but_HSVCIRCLE(
 	bool use_display_colorspace = ui_but_is_colorpicker_display_space(but);
 
 	ui_mouse_scale_warp(data, mx, my, &mx_fl, &my_fl, shift);
-	/*
+	
 #ifdef USE_CONT_MOUSE_CORRECT
 	if (ui_but_is_cursor_warp(but)) {
 
@@ -5493,7 +5510,7 @@ static bool ui_numedit_but_HSVCIRCLE(
 		}
 	}
 #endif
-*/
+
 	BLI_rcti_rctf_copy(&rect, &but->rect);
 
 	ui_but_v3_get(but, rgb);
@@ -5515,7 +5532,7 @@ static bool ui_numedit_but_HSVCIRCLE(
 	}
 
 	/* only apply the delta motion, not absolute */
-	/*if (shift) {
+	if (shift) {
 		float xpos, ypos, hsvo[3], rgbo[3];
 		
 
@@ -5532,7 +5549,7 @@ static bool ui_numedit_but_HSVCIRCLE(
 		mx_fl = xpos - (data->dragstartx - mx_fl);
 		my_fl = ypos - (data->dragstarty - my_fl);
 		
-	}*/
+	}
 	
 	ui_hsvcircle_vals_from_pos(hsv, hsv + 1, &rect, mx_fl, my_fl);
 
@@ -5736,11 +5753,7 @@ static int ui_do_but_HSVCIRCLE(bContext *C, uiBlock *block, uiBut *but, uiHandle
 	return WM_UI_HANDLER_CONTINUE;
 }
 
-
-
-
-
-static bool ui_numedit_but_HSVCIRCLE_MULTI(                                                                                         //////////////////////////////// PAWEL
+static bool ui_numedit_but_HSVCIRCLE_MULTI(
         uiBut *but, uiHandleButtonData *data,
         float mx, float my,
         const enum eSnapType snap, const bool shift)
@@ -5755,6 +5768,22 @@ static bool ui_numedit_but_HSVCIRCLE_MULTI(                                     
 
 	ui_mouse_scale_warp(data, mx, my, &mx_fl, &my_fl, shift);
 	
+#ifdef USE_CONT_MOUSE_CORRECT
+	if (ui_but_is_cursor_warp(but)) {
+
+		data->ungrab_mval[0] = mx_fl;
+		data->ungrab_mval[1] = my_fl;
+		{	
+			const float radius = min_ff(BLI_rctf_size_x(&but->rect), BLI_rctf_size_y(&but->rect)) / 2.0f;
+			const float cent[2] = {BLI_rctf_cent_x(&but->rect), BLI_rctf_cent_y(&but->rect)};
+			const float len = len_v2v2(cent, data->ungrab_mval);
+			if (len > radius) {
+				dist_ensure_v2_v2fl(data->ungrab_mval, cent, radius);
+			}
+		}
+	}
+#endif
+
 	BLI_rcti_rctf_copy(&rect, &but->rect);
 
 	ui_but_v3_get(but, rgb);
@@ -5763,10 +5792,39 @@ static bool ui_numedit_but_HSVCIRCLE_MULTI(                                     
 
 	ui_rgb_to_color_picker_compat_v(rgb, hsv);
 
-	ui_hsvcircle_vals_from_pos(hsv, hsv + 1, &rect, mx_fl, my_fl);
+	/* exception, when using color wheel in 'locked' value state:
+	 * allow choosing a hue for black values, by giving a tiny increment */
+	if (but->flag & UI_BUT_COLOR_LOCK) {
+		if (U.color_picker_type == USER_CP_CIRCLE_HSV) { // lock
+			if (hsv[2] == 0.f) hsv[2] = 0.0001f;
+		}
+		else {
+			if (hsv[2] == 0.0f) hsv[2] = 0.0001f;
+			if (hsv[2] >= 0.9999f) hsv[2] = 0.9999f;
+		}
+	}
+
+	/* only apply the delta motion, not absolute */
+	if (shift) {
+		float xpos, ypos, hsvo[3], rgbo[3];
+		
+
+		copy_v3_v3(hsvo, hsv);
+		copy_v3_v3(rgbo, data->origvec);
+		if (use_display_colorspace)
+			ui_block_cm_to_display_space_v3(but->block, rgbo);
+
+		ui_rgb_to_color_picker_compat_v(rgbo, hsvo);
+
+
+		ui_hsvcircle_pos_from_vals(but, &rect, hsvo, &xpos, &ypos);
+
+		mx_fl = xpos - (data->dragstartx - mx_fl);
+		my_fl = ypos - (data->dragstarty - my_fl);
+		
+	}
 	
-
-
+	ui_hsvcircle_vals_from_pos(hsv, hsv + 1, &rect, mx_fl, my_fl);
 
 	if ((but->flag & UI_BUT_COLOR_CUBIC) && (U.color_picker_type == USER_CP_CIRCLE_HSV))
 		hsv[1] = 1.0f - sqrt3f(1.0f - hsv[1]);
@@ -5786,23 +5844,18 @@ static bool ui_numedit_but_HSVCIRCLE_MULTI(                                     
 		ui_block_cm_to_scene_linear_v3(but->block, rgb);
 
 	ui_but_v3_set(but, rgb);
-
+	
 	data->draglastx = mx;
 	data->draglasty = my;
-
-
-
 	
 	return changed;
 }
 
-static int ui_do_but_HSVCIRCLE_MULTI(bContext *C, uiBlock *block, uiBut *but, uiHandleButtonData *data, const wmEvent *event)///////////////////////////////// PAWEL
+static int ui_do_but_HSVCIRCLE_MULTI(bContext *C, uiBlock *block, uiBut *but, uiHandleButtonData *data, const wmEvent *event)
 {
 	ColorPicker *cpicker = but->custom_data;
 	float *hsv = cpicker->color_data;
 	int mx, my;
-	static int point_list[4][2];
-	static int ct = 0; 
 	mx = event->x;
 	my = event->y;
 	ui_window_to_block(data->region, block, &mx, &my);
@@ -5815,12 +5868,7 @@ static int ui_do_but_HSVCIRCLE_MULTI(bContext *C, uiBlock *block, uiBut *but, ui
 			data->draglastx = mx;
 			data->draglasty = my;
 			button_activate_state(C, but, BUTTON_STATE_NUM_EDITING);
-
-	//const float centx = BLI_rcti_cent_x_fl(&but->rect);
-	//const float centy = BLI_rcti_cent_y_fl(&but->rect);
-	//printf("X: %f, Y %f \n", mx-centx, my-centx);
-
-
+			
 			if (ui_numedit_but_HSVCIRCLE_MULTI(but, data, mx, my, snap, event->shift != 0))
 				ui_numedit_apply(C, block, but, data);
 			
@@ -5904,6 +5952,24 @@ static int ui_do_but_HSVCIRCLE_MULTI(bContext *C, uiBlock *block, uiBut *but, ui
 	
 	return WM_UI_HANDLER_CONTINUE;
 }
+
+	
+
+
+/*
+	const float centx = BLI_rcti_cent_x_fl(&rect);
+	const float centy = BLI_rcti_cent_y_fl(&rect);
+
+	printf("X: %f, Y %f \n", mx-centx, my-centy );
+*/
+			/*
+			rcti rect;
+			BLI_rcti_rctf_copy(&rect, &but->rect);
+			const float centx = BLI_rcti_cent_x_fl(&rect);
+			const float centy = BLI_rcti_cent_y_fl(&rect);
+			printf("X: %f, Y %f \n", mx-centx, my-centy );
+			*/                    
+
 
 
 

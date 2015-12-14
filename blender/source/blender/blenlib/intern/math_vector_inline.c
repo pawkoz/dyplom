@@ -55,6 +55,11 @@ MINLINE void zero_v4(float r[4])
 	r[3] = 0.0f;
 }
 
+MINLINE void copy_v1_v1(float r, const float a)
+{
+	r = a;
+}
+
 MINLINE void copy_v2_v2(float r[2], const float a[2])
 {
 	r[0] = a[0];

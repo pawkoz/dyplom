@@ -45,7 +45,7 @@ void ColorMatteNode::convertToOperations(NodeConverter &converter, const Composi
 	converter.addOperation(operationRGBToHSV_Key);
 	
 	ColorMatteOperation *operation = new ColorMatteOperation();
-	operation->setSettings((NodeColorBalance *)editorsnode->storage);
+	operation->setSettings((NodeDiamond *)editorsnode->storage);
 	converter.addOperation(operation);
 	
 	SetAlphaOperation *operationAlpha = new SetAlphaOperation();

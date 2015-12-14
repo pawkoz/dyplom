@@ -535,6 +535,8 @@ set(SRC
 
 	operations/COM_MaskOperation.cpp
 	operations/COM_MaskOperation.h
+
+
 )
 
 list(APPEND INC

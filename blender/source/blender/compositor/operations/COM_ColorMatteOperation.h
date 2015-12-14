@@ -30,7 +30,7 @@
  */
 class ColorMatteOperation : public NodeOperation {
 private:
-	NodeColorBalance *m_settings;
+	NodeDiamond *m_settings;
 	SocketReader *m_inputImageProgram;
 	SocketReader *m_inputKeyProgram;
 public:
@@ -47,6 +47,6 @@ public:
 	void initExecution();
 	void deinitExecution();
 
-	void setSettings(NodeColorBalance *nodeColorBalance) { this->m_settings = nodeColorBalance; }
+	void setSettings(NodeDiamond *nodeDiamond) { this->m_settings = nodeDiamond; }
 };
 #endif

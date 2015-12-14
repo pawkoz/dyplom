@@ -47,9 +47,14 @@ static bNodeSocketTemplate cmp_node_color_out[] = {
 
 static void node_composit_init_color_matte(bNodeTree *UNUSED(ntree), bNode *node)
 {
-	NodeColorBalance *c = MEM_callocN(sizeof(NodeColorBalance), "node color");
+	NodeDiamond *c = MEM_callocN(sizeof(NodeDiamond), "node color");
 	node->storage = c;
 	c->gain[0] = c->gain[1] = c->gain[2] = 1.0f;
+	c->screen_balance = 0.5f;
+	c->despill_balance = 0.5f;
+	c->t2 = DEG2RADF(30.0f);
+
+
 
 }
 
@@ -60,6 +65,7 @@ void register_node_type_cmp_color_matte(void)
 	cmp_node_type_base(&ntype, CMP_NODE_COLOR_MATTE, "Color Key", NODE_CLASS_MATTE, NODE_PREVIEW);
 	node_type_socket_templates(&ntype, cmp_node_color_in, cmp_node_color_out);
 	node_type_init(&ntype, node_composit_init_color_matte);
+	node_type_size(&ntype, 400, 400, 400);
 	node_type_storage(&ntype, "NodeChroma", node_free_standard_storage, node_copy_standard_storage);
 
 	nodeRegisterType(&ntype);

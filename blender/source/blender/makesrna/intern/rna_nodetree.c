@@ -4942,10 +4942,30 @@ static void def_cmp_color_matte(StructRNA *srna)
 	RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
 	
 
+	//RNA_def_struct_sdna_from(srna, "NodeKeyingData", "storage");
+	RNA_def_struct_sdna_from(srna, "NodeDiamond", "storage");
 
-	RNA_def_struct_sdna_from(srna, "NodeColorBalance", "storage");
+	prop = RNA_def_property(srna, "width", PROP_FLOAT, PROP_FACTOR);
+	RNA_def_property_float_sdna(prop, NULL, "screen_balance");
+	RNA_def_property_range(prop, 0.0f, 1.0f);
+	RNA_def_property_ui_text(prop, "Width", "Balance between two non-primary channels primary channel is comparing against");
 
-	prop = RNA_def_property(srna, "gain_1", PROP_FLOAT, PROP_COLOR_GAMMA);
+	prop = RNA_def_property(srna, "height", PROP_FLOAT, PROP_FACTOR);
+	RNA_def_property_float_sdna(prop, NULL, "despill_balance");
+	RNA_def_property_range(prop, 0.0f, 1.0f);
+	RNA_def_property_ui_text(prop, "Height", "Balance between non-key colors used to detect amount of key color to be removed");
+
+	//RNA_def_struct_sdna_from(srna, "NodeChroma", "storage");
+
+	prop = RNA_def_property(srna, "angle", PROP_FLOAT, PROP_ANGLE);
+	RNA_def_property_float_sdna(prop, NULL, "t2");
+	RNA_def_property_range(prop, DEG2RADF(1.0f), DEG2RADF(80.0f));
+	RNA_def_property_ui_text(prop, "Cutoff", "Tolerance below which colors will be considered as exact matches");
+	RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+
+	//RNA_def_struct_sdna_from(srna, "NodeColorBalance", "storage");
+
+	prop = RNA_def_property(srna, "gain", PROP_FLOAT, PROP_COLOR_GAMMA);
 	RNA_def_property_float_sdna(prop, NULL, "gain");
 	RNA_def_property_array(prop, 3);
 	RNA_def_property_float_array_default(prop, default_1);
@@ -4953,6 +4973,8 @@ static void def_cmp_color_matte(StructRNA *srna)
 	RNA_def_property_ui_text(prop, "Gain", "Correction for Highlights");
 	RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
 	
+
+
 
 }
 
